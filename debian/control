@@ -1,12 +1,14 @@
 Source: mawk
 Section: interpreters
 Priority: required
-Maintainer: Steve Langasek <vorlon@debian.org>
+Maintainer: Pexip AS <packaging@pexip.com>
+XSBC-Pexip-Original-Maintainer: Steve Langasek <vorlon@debian.org>
 Build-Depends: quilt (>= 0.46-7), bison, debhelper (>= 8.9.4)
 Build-Conflicts: byacc
 Standards-Version: 3.9.2
 Vcs-Bzr: nosmart+http://bzr.debian.org/bzr/users/vorlon/mawk/trunk/
 Vcs-Browser: http://anonscm.debian.org/loggerhead/users/vorlon/mawk/trunk/
+XS-Pexip-Upstream: http://archive.ubuntu.com/ubuntu/ precise
 
 Package: mawk
 Architecture: any
