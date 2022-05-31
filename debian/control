@@ -8,7 +8,7 @@ Build-Conflicts: byacc
 Standards-Version: 3.9.2
 Vcs-Bzr: nosmart+http://bzr.debian.org/bzr/users/vorlon/mawk/trunk/
 Vcs-Browser: http://anonscm.debian.org/loggerhead/users/vorlon/mawk/trunk/
-XS-Pexip-Upstream: http://ftp.debian.org/debian/ buster
+XS-Pexip-Upstream: http://deb.debian.org/debian/ bullseye
 
 Package: mawk
 Architecture: any
