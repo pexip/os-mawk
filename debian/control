@@ -2,9 +2,9 @@ Source: mawk
 Section: interpreters
 Priority: required
 Maintainer: Boyuan Yang <byang@debian.org>
-Build-Depends: bison, debhelper-compat (= 12), autoconf-dickey
+Build-Depends: bison, debhelper-compat (= 13), autoconf-dickey
 Build-Conflicts: byacc
-Standards-Version: 4.5.0
+Standards-Version: 4.6.0
 Homepage: https://invisible-island.net/mawk/
 Vcs-Git: https://salsa.debian.org/debian/mawk.git
 Vcs-Browser: https://salsa.debian.org/debian/mawk
