@@ -1,6 +1,6 @@
 /********************************************
 cast.c
-copyright 2009-2014,2016, Thomas E. Dickey
+copyright 2009-2021,2024, Thomas E. Dickey
 copyright 1991-1995,1996, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,19 +11,74 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: cast.c,v 1.21 2016/09/30 11:51:20 tom Exp $
+ * $MawkId: cast.c,v 1.35 2024/12/14 21:21:20 tom Exp $
  */
 
-/*  cast.c  */
+#define Visible_CELL
+#define Visible_RE_DATA
+#define Visible_STRING
 
-#include "mawk.h"
-#include "field.h"
-#include "memory.h"
-#include "scan.h"
-#include "repl.h"
+#include <mawk.h>
+#include <field.h>
+#include <memory.h>
+#include <scan.h>
 
 const int mpow2[NUM_CELL_TYPES] =
 {1, 2, 4, 8, 16, 32, 64, 128, 256, 512};
+
+#define isXDIGIT(c) \
+	(scan_code[(c)] == SC_DIGIT \
+	|| ((c) >= 'A' && (c) <= 'F') \
+	|| ((c) >= 'a' && (c) <= 'f'))
+
+static void
+string_to_double(CELL *cp)
+{
+    const char *q = string(cp)->str;
+    const char *r = string(cp)->len + q;
+
+    cp->dval = 0.0;
+
+    /* if non-posix, disallow hexadecimal, infinity and not-a-number */
+    if (!posix_space_flag) {
+	const char *s;
+
+	while ((q != r) && (scan_code[(UChar) q[0]] == SC_SPACE))
+	    q++;
+	if (q == r)
+	    goto done;
+	s = q;
+	if (scan_code[(UChar) q[0]] == SC_PLUS ||
+	    scan_code[(UChar) q[0]] == SC_MINUS)
+	    q++;
+	if (q[0] == '0') {
+	    if (q + 1 == r)	/* just "0" is legal */
+		goto done;
+	    if (q[1] == 'x' || q[1] == 'X') {
+		if (q + 2 == r)	/* "0x" by itself is zero */
+		    goto done;
+		if (isXDIGIT((UChar) q[2]))	/* ignore hexadecimal */
+		    goto done;
+	    }
+	} else if (scan_code[(UChar) q[0]] != SC_DIGIT && q[0] != '.') {
+	    goto done;		/* ignore non-number such as "inf" */
+	}
+	q = s;
+    }
+
+    errno = 0;
+#ifdef FPE_TRAPS_ON		/* look for overflow error */
+    cp->dval = strtod(q, (char **) 0);
+    if (errno && cp->dval != 0.0)	/* ignore underflow */
+	rt_error("overflow converting %s to double", q);
+#else
+    cp->dval = strtod(q, (char **) 0);
+#endif
+    free_STRING(string(cp));
+
+  done:
+    cp->type = C_DOUBLE;
+}
 
 void
 cast1_to_d(CELL *cp)
@@ -31,44 +86,31 @@ cast1_to_d(CELL *cp)
     switch (cp->type) {
     case C_NOINIT:
 	cp->dval = 0.0;
+	cp->type = C_DOUBLE;
 	break;
 
     case C_DOUBLE:
-	return;
+	break;
 
     case C_MBSTRN:
     case C_STRING:
-	{
-	    register STRING *s = (STRING *) cp->ptr;
-
-	    errno = 0;
-#ifdef FPE_TRAPS_ON		/* look for overflow error */
-	    cp->dval = strtod(s->str, (char **) 0);
-	    if (errno && cp->dval != 0.0)	/* ignore underflow */
-		rt_error("overflow converting %s to double", s->str);
-#else
-	    cp->dval = strtod(s->str, (char **) 0);
-#endif
-	    free_STRING(s);
-	}
+	string_to_double(cp);
 	break;
 
     case C_STRNUM:
 	/* don't need to convert, but do need to free the STRING part */
 	free_STRING(string(cp));
+	cp->type = C_DOUBLE;
 	break;
 
     default:
 	bozo("cast on bad type");
     }
-    cp->type = C_DOUBLE;
 }
 
 void
 cast2_to_d(CELL *cp)
 {
-    register STRING *s;
-
     switch (cp->type) {
     case C_NOINIT:
 	cp->dval = 0.0;
@@ -82,17 +124,7 @@ cast2_to_d(CELL *cp)
 
     case C_MBSTRN:
     case C_STRING:
-	s = (STRING *) cp->ptr;
-
-	errno = 0;
-#ifdef FPE_TRAPS_ON		/* look for overflow error */
-	cp->dval = strtod(s->str, (char **) 0);
-	if (errno && cp->dval != 0.0)	/* ignore underflow */
-	    rt_error("overflow converting %s to double", s->str);
-#else
-	cp->dval = strtod(s->str, (char **) 0);
-#endif
-	free_STRING(s);
+	string_to_double(cp);
 	break;
 
     default:
@@ -116,17 +148,7 @@ cast2_to_d(CELL *cp)
 
     case C_MBSTRN:
     case C_STRING:
-	s = (STRING *) cp->ptr;
-
-	errno = 0;
-#ifdef FPE_TRAPS_ON		/* look for overflow error */
-	cp->dval = strtod(s->str, (char **) 0);
-	if (errno && cp->dval != 0.0)	/* ignore underflow */
-	    rt_error("overflow converting %s to double", s->str);
-#else
-	cp->dval = strtod(s->str, (char **) 0);
-#endif
-	free_STRING(s);
+	string_to_double(cp);
 	break;
 
     default:
@@ -135,10 +157,28 @@ cast2_to_d(CELL *cp)
     cp->type = C_DOUBLE;
 }
 
+#define DoubleToString(target,source) \
+	if (IsMaxBound(fabs(source->dval))) { \
+	    sprintf(target, UNSIGNED_FORMAT, source->dval); \
+	} else if (source->dval >= (double) Max_ULong) { \
+	    ULong lval = d_to_UL(source->dval); \
+	    if (lval == source->dval) { \
+		sprintf(target, ULONG_FMT, lval); \
+	    } else { \
+		sprintf(target, string(CONVFMT)->str, source->dval); \
+	    } \
+	} else { \
+	    Long lval = d_to_L(source->dval); \
+	    if (lval == source->dval) { \
+		sprintf(target, LONG_FMT, lval); \
+	    } else { \
+		sprintf(target, string(CONVFMT)->str, source->dval); \
+	    } \
+	}
+
 void
 cast1_to_s(CELL *cp)
 {
-    register Int lval;
     char xbuff[260];
 
     switch (cp->type) {
@@ -149,12 +189,7 @@ cast1_to_s(CELL *cp)
 
     case C_DOUBLE:
 
-	lval = d_to_I(cp->dval);
-	if (lval == cp->dval)
-	    sprintf(xbuff, INT_FMT, lval);
-	else
-	    sprintf(xbuff, string(CONVFMT)->str, cp->dval);
-
+	DoubleToString(xbuff, cp);
 	cp->ptr = (PTR) new_STRING(xbuff);
 	break;
 
@@ -174,7 +209,6 @@ cast1_to_s(CELL *cp)
 void
 cast2_to_s(CELL *cp)
 {
-    register Int lval;
     char xbuff[260];
 
     switch (cp->type) {
@@ -185,12 +219,7 @@ cast2_to_s(CELL *cp)
 
     case C_DOUBLE:
 
-	lval = d_to_I(cp->dval);
-	if (lval == cp->dval)
-	    sprintf(xbuff, INT_FMT, lval);
-	else
-	    sprintf(xbuff, string(CONVFMT)->str, cp->dval);
-
+	DoubleToString(xbuff, cp);
 	cp->ptr = (PTR) new_STRING(xbuff);
 	break;
 
@@ -217,12 +246,7 @@ cast2_to_s(CELL *cp)
 
     case C_DOUBLE:
 
-	lval = d_to_I(cp->dval);
-	if (lval == cp->dval)
-	    sprintf(xbuff, INT_FMT, lval);
-	else
-	    sprintf(xbuff, string(CONVFMT)->str, cp->dval);
-
+	DoubleToString(xbuff, cp);
 	cp->ptr = (PTR) new_STRING(xbuff);
 	break;
 
@@ -258,15 +282,18 @@ cast_to_RE(CELL *cp)
 void
 cast_for_split(CELL *cp)
 {
+#ifndef NO_INTERVAL_EXPR
+    static const char meta[] = "^$.*+?|[](){}";
+#else
     static const char meta[] = "^$.*+?|[]()";
-    static char xbuff[] = "\\X";
-    int c;
+#endif
     size_t len;
 
     if (cp->type < C_STRING)
 	cast1_to_s(cp);
 
     if ((len = string(cp)->len) == 1) {
+	int c;
 	if ((c = string(cp)->str[0]) == ' ') {
 	    free_STRING(string(cp));
 	    cp->type = C_SPACE;
@@ -291,6 +318,7 @@ cast_for_split(CELL *cp)
 	    return;
 #endif
 	} else if ((strchr) (meta, c)) {
+	    static char xbuff[] = "\\X";
 	    xbuff[1] = (char) c;
 	    free_STRING(string(cp));
 	    cp->ptr = (PTR) new_STRING(xbuff);
@@ -314,6 +342,7 @@ check_strnum(CELL *cp)
 {
     char *temp;
     register unsigned char *s, *q;
+    char code;
 
     cp->type = C_STRING;	/* assume not C_STRNUM */
     s = (unsigned char *) string(cp)->str;
@@ -323,16 +352,27 @@ check_strnum(CELL *cp)
     if (s == q)
 	return;
 
-    while (scan_code[q[-1]] == SC_SPACE)
+    while ((code = scan_code[q[-1]]) == SC_SPACE)
 	q--;
-    if (scan_code[q[-1]] != SC_DIGIT &&
-	q[-1] != '.')
+    if (code != SC_DIGIT && code != SC_DOT)
 	return;
 
     switch (scan_code[*s]) {
-    case SC_DIGIT:
     case SC_PLUS:
     case SC_MINUS:
+	if (!posix_space_flag) {
+	    if ((code = scan_code[s[1]]) != SC_DIGIT && code != SC_DOT)
+		return;
+	}
+	/* FALLTHRU */
+    case SC_DIGIT:
+	if (!posix_space_flag) {
+	    if (*s == '0') {
+		if (s[1] == 'x' || s[1] == 'X')
+		    return;
+	    }
+	}
+	/* FALLTHRU */
     case SC_DOT:
 
 	errno = 0;
@@ -382,27 +422,58 @@ cast_to_REPL(CELL *cp)
 Int
 d_to_I(double d)
 {
-    if (d >= Max_Int)
-	return Max_Int;
-    if (d > -Max_Int)
-	return (Int) d;
-    return -Max_Int;
+    Int result;
+
+    if (d >= (double) Max_Int) {
+	result = Max_Int;
+    } else if (d < 0) {
+	if (-d <= (double) Max_Int) {
+	    result = (Int) d;
+	} else {
+	    result = -Max_Int;
+	}
+    } else {
+	result = (Int) d;
+    }
+    return result;
 }
 
-/* convert a double to UInt (this is not as simple as a
-   cast because the results are undefined if it won't fit).
-   Truncate large values to Max_UInt or 0
-   Send nans to 0
-*/
-
-UInt
-d_to_U(double d)
+Long
+d_to_L(double d)
 {
-    if (d >= Max_UInt)
-	return Max_UInt;
-    if (d > 0)
-	return (UInt) d;
-    return 0;
+    Long result;
+
+    if (d >= (double) Max_Long) {
+	result = Max_Long;
+    } else if (d < 0) {
+	if (-d <= (double) Max_Long) {
+	    result = (Long) d;
+	} else {
+	    result = -Max_Long;
+	}
+    } else {
+	result = (Long) d;
+    }
+    return result;
+}
+
+ULong
+d_to_UL(double d)
+{
+    ULong result;
+
+    if (d >= (double) Max_ULong) {
+	result = Max_ULong;
+    } else if (d < 0) {
+	if (-d < (double) Max_ULong) {
+	    result = ((Max_ULong + (ULong) d) + 1);
+	} else {
+	    result = -Max_ULong;
+	}
+    } else {
+	result = (ULong) d;
+    }
+    return result;
 }
 
 #ifdef NO_LEAKS
@@ -441,7 +512,7 @@ no_leaks_cell_ptr(CELL *cp)
 void
 cell_leaks(void)
 {
-    while (all_cells != 0) {
+    while (all_cells != NULL) {
 	ALL_CELLS *next = all_cells->next;
 	if (all_cells->ptr) {
 	    zfree(all_cells->cp, sizeof(CELL));

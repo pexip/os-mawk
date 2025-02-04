@@ -4,17 +4,10 @@ Priority: required
 Maintainer: Boyuan Yang <byang@debian.org>
 Build-Depends: bison, debhelper-compat (= 13), autoconf-dickey
 Build-Conflicts: byacc
-Standards-Version: 4.6.0
+Standards-Version: 4.7.0
 Homepage: https://invisible-island.net/mawk/
 Vcs-Git: https://salsa.debian.org/debian/mawk.git
 Vcs-Browser: https://salsa.debian.org/debian/mawk
-
-Package: mawk
-Architecture: any
-Multi-Arch: foreign
-Provides: awk
-Pre-Depends: ${misc:Pre-Depends}
-Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Pattern scanning and text processing language
  Mawk is an interpreter for the AWK Programming Language. The AWK
  language is useful for manipulation of data files, text retrieval and
@@ -28,3 +21,12 @@ Description: Pattern scanning and text processing language
  .
  Mawk is smaller and much faster than gawk. It has some compile-time
  limits such as NF = 32767 and sprintf buffer = 1020.
+
+Package: mawk
+Architecture: any
+Multi-Arch: foreign
+Provides: awk
+Pre-Depends: ${misc:Pre-Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: ${source:Synopsis}
+ ${source:Extended-Description}

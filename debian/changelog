@@ -1,3 +1,140 @@
+mawk (1.3.4.20250131-1) unstable; urgency=medium
+
+  * New upstream snapshot.
+
+ -- Boyuan Yang <byang@debian.org>  Tue, 04 Feb 2025 08:40:44 -0500
+
+mawk (1.3.4.20240905-1) unstable; urgency=medium
+
+  * New upstream snapshot.
+  * Upload to unstable.
+
+ -- Boyuan Yang <byang@debian.org>  Thu, 12 Sep 2024 17:55:13 -0400
+
+mawk (1.3.4.20240827-1~exp1) experimental; urgency=medium
+
+  * New upstream snapshot.
+  * debian/patches/: Drop all patches for a test build in Experimental.
+
+ -- Boyuan Yang <byang@debian.org>  Thu, 29 Aug 2024 17:09:31 -0400
+
+mawk (1.3.4.20240819-3) unstable; urgency=medium
+
+  * debian/patches/0003-Fix-Debian-bug-1079389.patch: Apply upstream-proposed
+    patch to fix incorrect result from sub(). (Closes: #1079389)
+
+ -- Boyuan Yang <byang@debian.org>  Sun, 25 Aug 2024 13:06:40 -0400
+
+mawk (1.3.4.20240819-2) unstable; urgency=medium
+
+  * debian/patches/0002-Disable-long-lines-test-as-suggested-upstream.patch:
+    Disable test as suggested upstream due to memory requirement.
+
+ -- Boyuan Yang <byang@debian.org>  Wed, 21 Aug 2024 18:22:35 -0400
+
+mawk (1.3.4.20240819-1) unstable; urgency=medium
+
+  * New upstream snapshot 1.3.4.20240819.
+  * debian/patches/0001-Temp-fix-for-test.patch: Add an ad-hoc fix
+    for mawktest.
+  * debian/patches/0001-aclocal.m4-Avoid-arc4random-for-now.patch:
+    Dropped, the mawk upstream now disables arc4random by default.
+
+ -- Boyuan Yang <byang@debian.org>  Wed, 21 Aug 2024 09:19:44 -0400
+
+mawk (1.3.4.20240622-2) unstable; urgency=medium
+
+  * debian/patches/0001-aclocal.m4-Avoid-arc4random-for-now.patch:
+    Add patch to avoid using arc4random as suggested upstream.
+    (Closes: #1075717)
+
+ -- Boyuan Yang <byang@debian.org>  Fri, 19 Jul 2024 21:33:53 -0400
+
+mawk (1.3.4.20240622-1) unstable; urgency=medium
+
+  * New upstream snapshot 1.3.4.20240622.
+    + Fix buffer overread in scan.c with mawk -f <large file>.
+      (Closes: #1074280)
+  * debian/control: Move package description to the source package
+    section.
+  * debian/control: Bump Standards-Version to 4.7.0.
+
+ -- Boyuan Yang <byang@debian.org>  Tue, 25 Jun 2024 19:34:29 -0400
+
+mawk (1.3.4.20240123-1) unstable; urgency=medium
+
+  * New upstream snapshot 1.3.4.20240123.
+
+ -- Boyuan Yang <byang@debian.org>  Fri, 26 Jan 2024 09:47:02 -0500
+
+mawk (1.3.4.20231126-1) unstable; urgency=medium
+
+  * New upstream snapshot 1.3.4.20231126.
+
+ -- Boyuan Yang <byang@debian.org>  Thu, 30 Nov 2023 20:16:14 -0500
+
+mawk (1.3.4.20231102-1) unstable; urgency=medium
+
+  * New upstream snapshot 1.3.4.20231102.
+
+ -- Boyuan Yang <byang@debian.org>  Tue, 14 Nov 2023 13:21:53 -0500
+
+mawk (1.3.4.20230808-1) unstable; urgency=medium
+
+  * New upstream snapshot 1.3.4.20230808.
+
+ -- Boyuan Yang <byang@debian.org>  Sun, 20 Aug 2023 21:33:16 -0400
+
+mawk (1.3.4.20230730-1) unstable; urgency=medium
+
+  * New upstream snapshot 1.3.4.20230730.
+  * debian/watch: Enable auto pgp mode to check digital signature.
+  * debian/upstream/signing-key.asc: Import author's PGP key.
+  * debian/rules: Drop unneeded unusual mandir override.
+
+ -- Boyuan Yang <byang@debian.org>  Thu, 03 Aug 2023 17:06:29 -0400
+
+mawk (1.3.4.20230525-1) unstable; urgency=medium
+
+  * Upload to unstable.
+
+ -- Boyuan Yang <byang@debian.org>  Wed, 14 Jun 2023 20:37:46 -0400
+
+mawk (1.3.4.20230525-1~exp1) experimental; urgency=medium
+
+  * New upstream snapshot 1.3.4.20230525.
+
+ -- Boyuan Yang <byang@debian.org>  Fri, 02 Jun 2023 15:56:26 -0400
+
+mawk (1.3.4.20230404-1~exp1) experimental; urgency=medium
+
+  * New upstream snapshot 1.3.4.20230404.
+
+ -- Boyuan Yang <byang@debian.org>  Mon, 10 Apr 2023 15:31:30 -0400
+
+mawk (1.3.4.20230322-1~exp1) experimental; urgency=medium
+
+  * New upstream snapshot 1.3.4.20230322.
+
+ -- Boyuan Yang <byang@debian.org>  Tue, 04 Apr 2023 15:25:53 -0400
+
+mawk (1.3.4.20230203-1~exp1) experimental; urgency=medium
+
+  * New upstream snapshot 1.3.4.20230203.
+  * debian/control: Bump Standards-Version to 4.6.2.
+  * debian/copyright: Update information.
+
+ -- Boyuan Yang <byang@debian.org>  Wed, 08 Feb 2023 20:16:50 -0500
+
+mawk (1.3.4.20210824-1~exp1) experimental; urgency=medium
+
+  * New upstream snapshot 1.3.4.20210824.
+  * debian/watch: Fix upstream monitoring script.
+  * debian/copyright: Update information.
+  * debian/control: Bump Standards-Version to 4.6.1.
+
+ -- Boyuan Yang <byang@debian.org>  Tue, 18 Oct 2022 16:33:29 -0400
+
 mawk (1.3.4.20200120-3.1) unstable; urgency=medium
 
   * Non-maintainer upload.

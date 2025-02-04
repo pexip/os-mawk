@@ -1,6 +1,6 @@
 /********************************************
 kw.c
-copyright 2008-2012,2016, Thomas E. Dickey
+copyright 2008-2023,2024, Thomas E. Dickey
 copyright 1991-1993, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,47 +11,48 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: kw.c,v 1.7 2016/09/29 23:02:51 tom Exp $
+ * $MawkId: kw.c,v 1.11 2024/08/25 17:21:36 tom Exp $
  */
 
-/* kw.c */
+#define Visible_SYMTAB
 
-#include "mawk.h"
-#include "symtype.h"
-#include "parse.h"
-#include "init.h"
+#include <mawk.h>
+#include <symtype.h>
+#include <parse.h>
+#include <init.h>
 /* *INDENT-OFF* */
 static const struct kw
 {
-    const char *text;
+    const char text[12];
     short kw;
 }
 keywords[] =
 {
-    { "print",    PRINT },
-    { "printf",   PRINTF },
-    { "do",       DO },
-    { "while",    WHILE },
-    { "for",      FOR },
-    { "break",    BREAK },
-    { "continue", CONTINUE },
-    { "if",       IF },
-    { "else",     ELSE },
-    { "in",       IN },
-    { "delete",   DELETE },
-    { "split",    SPLIT },
-    { "match",    MATCH_FUNC },
     { "BEGIN",    BEGIN },
     { "END",      END },
+    { "break",    BREAK },
+    { "continue", CONTINUE },
+    { "delete",   DELETE },
+    { "do",       DO },
+    { "else",     ELSE },
     { "exit",     EXIT },
+    { "for",      FOR },
+    { "function", FUNCTION },
+    { "getline",  GETLINE },
+    { "gsub",     GSUB },
+    { "if",       IF },
+    { "in",       IN },
+    { "length",   LENGTH },
+    { "match",    MATCH_FUNC },
     { "next",     NEXT },
     { "nextfile", NEXTFILE },
+    { "print",    PRINT },
+    { "printf",   PRINTF },
     { "return",   RETURN },
-    { "getline",  GETLINE },
+    { "split",    SPLIT },
     { "sub",      SUB },
-    { "gsub",     GSUB },
-    { "function", FUNCTION },
-    { (char *) 0, 0 }
+    { "while",    WHILE },
+    { "",         0 }
 };
 /* *INDENT-ON* */
 
@@ -60,9 +61,10 @@ void
 kw_init(void)
 {
     register const struct kw *p = keywords;
-    register SYMTAB *q;
 
-    while (p->text) {
+    while (p->text[0]) {
+	register SYMTAB *q;
+
 	q = insert(p->text);
 	q->type = ST_KEYWORD;
 	q->stval.kw = p++->kw;
@@ -75,7 +77,7 @@ find_kw_str(int kw_token)
 {
     const struct kw *p;
 
-    for (p = keywords; p->text; p++)
+    for (p = keywords; p->text[0]; p++)
 	if (p->kw == kw_token)
 	    return p->text;
     /* search failed */

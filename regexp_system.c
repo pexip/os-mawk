@@ -1,6 +1,6 @@
 /*
 regexp_system.c
-copyright 2009-2010,2014 Thomas E. Dickey
+copyright 2009-2020,2024 Thomas E. Dickey
 copyright 2005, Aleksey Cheusov
 
 This is a source file for mawk, an implementation of
@@ -11,7 +11,7 @@ the GNU General Public License, version 2, 1991.
  */
 
 /*
- * $MawkId: regexp_system.c,v 1.36 2014/09/11 23:41:31 tom Exp $
+ * $MawkId: regexp_system.c,v 1.42 2024/12/14 17:39:48 tom Exp $
  */
 #include <sys/types.h>
 #include <stdio.h>
@@ -20,7 +20,9 @@ the GNU General Public License, version 2, 1991.
 #include <stdlib.h>
 #include <errno.h>
 
-#include "regexp.h"
+#include <mawk.h>
+#include <rexp.h>
+#include <regexp.h>
 
 typedef struct {
     regex_t re;
@@ -49,7 +51,7 @@ static char *
 prepare_regexp(char *regexp, const char *source, size_t limit)
 {
     const char *base = source;
-    const char *range = 0;
+    const char *range = NULL;
     int escape = 0;
     int cclass = 0;
     int radix = 0;
@@ -163,7 +165,7 @@ prepare_regexp(char *regexp, const char *source, size_t limit)
 	    case '*':		/* FALLTHRU */
 	    case '.':		/* FALLTHRU */
 	    case '+':		/* FALLTHRU */
-	    case '{':		/* FALLTHRU */
+	    case L_CURL:	/* FALLTHRU */
 	    case '|':		/* FALLTHRU */
 		*tail++ = '\\';
 		*tail++ = ch;
@@ -236,7 +238,7 @@ prepare_regexp(char *regexp, const char *source, size_t limit)
 		}
 		break;
 	    case '[':
-		if (range == 0) {
+		if (range == NULL) {
 		    range = tail;
 		} else {
 		    if (NEXT_CH() == ':') {
@@ -246,7 +248,7 @@ prepare_regexp(char *regexp, const char *source, size_t limit)
 		*tail++ = ch;
 		break;
 	    case ']':
-		if (range != 0) {
+		if (range != NULL) {
 		    if (cclass != 0) {
 			if (source[-2] == cclass) {
 			    cclass = 0;
@@ -254,23 +256,35 @@ prepare_regexp(char *regexp, const char *source, size_t limit)
 		    } else if (tail == range + 1
 			       || (tail == range + 2 && range[1] == '^')
 			       || (tail > range + 2)) {
-			range = 0;
+			range = NULL;
 		    }
 		}
 		*tail++ = ch;
 		break;
-	    case '{':
-		if (range == 0 &&
-		    ((tail == regexp) ||
-		     (tail[-1] == '*') ||
-		     (tail[-1] == '?'))) {
+	    case L_CURL:
+#ifndef NO_INTERVAL_EXPR
+		if (repetitions_flag) {
+		    *tail++ = ch;
+		    break;
+		} else
+#endif
+		    if (range == NULL &&
+			((tail == regexp) ||
+			 (tail[-1] == '*') ||
+			 (tail[-1] == '?'))) {
 		    *tail++ = '\\';
 		    *tail++ = ch;
 		    break;
 		}
 		/* FALLTHRU */
-	    case '}':
-		if (range == 0)
+	    case R_CURL:
+#ifndef NO_INTERVAL_EXPR
+		if (repetitions_flag) {
+		    *tail++ = ch;
+		    break;
+		} else
+#endif
+		if (range == NULL)
 		    *tail++ = '\\';
 		*tail++ = ch;
 		break;
@@ -292,7 +306,7 @@ REcompile(char *regexp, size_t len)
 {
     mawk_re_t *re = (mawk_re_t *) malloc(sizeof(mawk_re_t));
 
-    if (re != 0) {
+    if (re != NULL) {
 	size_t need = (len * 2) + 8;	/* might double, with escaping */
 	char *new_regexp = (char *) malloc(need);
 
@@ -325,14 +339,17 @@ REcompile(char *regexp, size_t len)
 	    re = NULL;
 	}
     }
+    TRACE(("REcompile(%s) ->%p\n", regexp, re));
     return re;
 }
 
+#ifdef NO_LEAKS
 void
 REdestroy(PTR ptr)
 {
     (void) ptr;
 }
+#endif
 
 /*
  * Test the regular expression in 'q' against the string 'str'.
@@ -344,7 +361,7 @@ REtest(char *str, size_t str_len GCC_UNUSED, PTR q)
 {
     mawk_re_t *re = (mawk_re_t *) q;
 
-    TRACE(("REtest:  \"%s\" ~ /%s/", str, re->regexp));
+    TRACE(("REtest:  \"%s\" ~ /%s/ @%p", str, re->regexp, re));
 
     last_used_regexp = re;
 
@@ -380,6 +397,7 @@ REmatch(char *str, size_t str_len GCC_UNUSED, PTR q, size_t *lenp, int no_bol)
     }
 }
 
+#if defined(DEBUG)
 void
 REmprint(void *m, FILE *f)
 {
@@ -388,6 +406,7 @@ REmprint(void *m, FILE *f)
     /* no debugging code available */
     abort();
 }
+#endif
 
 static char error_buffer[2048];
 

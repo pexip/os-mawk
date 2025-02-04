@@ -1,6 +1,346 @@
--- $MawkId: CHANGES,v 1.273 2020/01/20 11:44:41 tom Exp $
+-- $MawkId: CHANGES,v 1.418 2025/01/31 22:17:33 tom Exp $
 
-Changes by Thomas E Dickey <dickey@invisible-island.net>
+20250131
+	+ transform nested "+" repetitions to "{1,}" form, to work with the
+	  runtime stack.
+	+ modify M_ENTER to record its loop-level into a runtime stack, which
+	  can be checked by failing operations to provide quick recovery.
+
+20241231
+	+ in-progress changes to improve regex brace expressions, using new
+	  machine codes M_ENTER and M_LOOP.
+	+ add a T_CAT in compiled regex to fix a panic (report by Dimitar
+	  Dimitrov).
+
+20241214
+	+ fix stricter gcc15 warnings.
+
+20241213
+	+ disallow reading from a directory like a file (Original-Mawk #83).
+
+20241212
+	+ modify calls on stdtod() to disallow hexadecimal, infinite and
+	  not-a-number values unless the "--posix" option is given (report by
+	  Xose Vazquez Perez).
+	+ fix a regression in rexp3.c for pattern /^.$/ (cf: 20240819)
+
+20241209
+	+ modify use of OFMT when given a format such as %c which cannot fully
+	  represent a floating point value, like gawk/bwk.
+	+ modify format for infinite values, showing plus/minus signs.
+	+ allow format to contain an escaped '%'
+	+ further printf/sprintf fixes, using line-coverage to guide testing
+
+20241117
+	+ improve printf/sprintf by handling special case of 2^64 which can be
+	  represented as an exact value (Original-Mawk #78).
+	+ modify use of mktemp in test-scripts to work with HPUX, which uses
+	  a different interpretation of the "-d" option.
+	+ update configure script
+
+20240905
+	+ update manual page discussing approved extensions.
+	+ mask nonprintable characters when reporting errors in scripts
+	+ fix for unmatchable pattern workaround in 20240819, in case the regex
+	  also has a syntax error immediately after (report/testcase by Tyler
+	  Hawkins).
+	+ fix sign-extension in scan.c (report/testcase by Tyler Hawkins).
+
+20240827
+	+ amend fix for Original-Mawk #48, providing for deep function
+	  recursion, but disallowing more than 255 parameters for printf, etc.
+	+ add test-cases to test/mawkerrs
+	+ update config.guess and config.sub
+
+20240825
+	+ modify struct declarations to simplify further changes to reduce use
+	  of typeless pointers.
+	+ reduce memory requirements for test/longlines.sh (discussion with
+	  Boyuan Yang).
+	+ fix compiler warning about out-of-bounds reference to eval_stack[]
+	+ fix regression in ".*$" regex (Debian #1079389).
+
+20240819
+	+ several changes to improve results with lcov, increasing coverage
+	  measured by line/function percentages from 82.3/89.2 to 90.5/96.0;
+	  using new bundled and separate test-cases as well as some code fixes.
+	  + some code-changes provide for overriding compiled-in limits to make
+	    testing simpler, e.g., SP_SIZE, FB_SHIFT, SPRINTF_LIMIT.
+	  + adjusted ifdef's based on coverage analysis which showed used code
+	  + test package builds with "unused" cases in rexp*.c disabled
+	  + new bundled test cases include cclass.awk and mawkerrs script.
+	    The latter is invoked via the "mawk_errs" target in the makefile.
+	  + correct a case in rexp3.c which addressed past end of string.
+	  + improve regex handling of nul character.
+	  + add a null pointer check to cell_destroy()
+	  + show state value in the panic exit in rexp0.c
+	  + add RE_bad_state, for panics in rexp2.c and rexp3.c
+	  + add workaround in rexp.c for patterns like /{0}/ and /^{0]/ where
+	    nothing could match, for now with a comment indicating that a
+	    RE_none() along with a M_REJECT state seems the way to completely
+	    resolve this.  The workaround was needed because trimming the {0}
+	    caused out-of-bounds access.
+	  + use C_NOINIT in bi_funct.c for readability
+	  + address special-case in the trace call in execute.c, to avoid
+	    calling da_type_name() when sp happens to be just before
+	    eval_stack[] -- which happens in the first call from the main
+	    program.
+	  + add/use TRACE_FUNC2 for cases where we know the number of arguments
+	    is not sp->type
+	  + fix a regression in fin.c introduced by buffer-changes in 20230808
+	  + fixes for is_string_split() function, making it work for both
+	    internal and external regex.
+	+ change ifdef in version.c to provide for test-package showing the
+	  effective limit of sprintf buffer.
+	+ correction to usage message: -W traditional rather than -W compat
+	+ test/mawktest uses mktemp for the working files
+	+ add test/longline.sh
+	+ add test/hashbang-S.sh for later use in testing.
+	+ add test/cclass.awk script for character-classes
+	+ improve regular expression matching (Original-Mawk #76).
+
+20240716
+	+ add --enable-arc4random option to configure script; this is normally
+	  disabled for mawk because the developer of arc4random did not provide
+	  a useful method for initialization (Debian #1075717).
+	+ improve configure-check for clock_gettime, checking for both
+	  monotonic and realtime clocks, as well as adding a check for
+	  clock_gettime in the "rt" library for Solaris
+
+20240622
+	+ ensure input buffer is null-terminated (patch by James Cowgill,
+	  Original-Mawk #77).
+
+20240123
+	+ improve manpage style/formatting.
+	+ improve conversion of parameter of srand() when using srandom()
+	  (Original-Mawk #66).
+	+ minor improvement for configure script
+
+20231210
+	+ correct interator type in REcompile (Original-Mawk #73)
+	+ improve configure script check for arc4random
+	+ reduce compiler warnings in configure script checks
+
+20231126
+	+ fix a couple of problems reported by Coverity:
+	  + modify cell_destroy() to set the string pointer to NULL if zfree()
+	    might have freed it.
+	  + replace a couple of strcpy's with loop.
+	  + eliminate a fixed-size array in re_cmpl.c
+	+ change casts in strftime() and srand() to avoid truncation on 64-bit
+	  machines (report by John Naman).
+
+20231102
+	+ environment-fixes for building with Solaris 10.
+
+20231101
+	+ repair parsing for comma-separated -W options used in "#" lines
+	  (report by Leif Baron).
+	+ updated makedeps.sh and examples/deps.awk, to update Makefile.in
+	+ remove obsolete/incorrect zero-termination assignment from fillbuff()
+	  (Original-Mawk #71).
+	+ updated configure macros
+	+ update config.guess and config.sub
+
+20230816
+	+ start work on _CALLX
+	+ da.c:  replace most of the string-literals in fprintf's with result
+	  from da_op_name()
+	+ da.c, mawk.h:  simplify ifdef for da_op_name(), to reuse in
+	  refactoring of _CALL
+	+ da.c:  dumping the function name in front of the offset is
+	  distracting, use just "@"
+	+ da.c: make the trace show offsets like the -Wdump option
+	+ da.c:  add traces to show which function is being dumped (and
+	  possibly patched).  this improves on the fix for dump_funcs() as well,
+	  freeing the linked-list
+	+ code.c: fix a use-after-free when no-leaks and traces are combined.
+	+ code.c: add trace to be_setup()
+	+ parse.y: make trace message consistent with fcall.c
+	+ execute.c: eliminate a couple of comparisons
+	+ change SYMTAB_TYPES to mixed enum/masks, to reduce comparisons for
+	  array types.
+	+ some cleanup, using NUM_ARGS and SYM_TYPE typedefs.
+
+20230808
+	+ modify input buffer-resizing to improve performance with very long
+	  lines (report/testcase by Leif LeBaron).
+
+20230804
+	> fixes for nulls (patches by Miguel Pineiro Jr).
+	  + support nulls in toupper() and tolower().
+	  + modify str_str() to ensure lengths for key/target are large enough
+	    for the memcmp() call.
+	+ treat special case of failure to open input file due to too many open
+	  files as a fatal error (report/testcase by Christoph Brunhuber).
+	+ fix a shift/reduce conflict for length vs length()
+	+ quote string-parameter in a few error-messages
+	+ add MinGW-code for system() calls (Original-Mawk #51).
+
+20230730
+	+ rexp.c: do not unroll repetition into loops if the repetition applies
+	  to more than one character.
+	+ rexp3.c: increment machine on completing M_2JC step to fix a case
+	  with infinite loop.
+	+ print.c: improve parameter-passing, eliminating a duplicate check.
+
+20230726
+	+ modify makefile to install mawk-array and mawk-code manpages.
+
+20230725
+	+ use da_string more consistently in dumps.
+	+ improve scanner to some type-checks of arrays versus scalars by
+	  deferring this into the runtime execution (report by Rajeev V Pillai).
+
+20230716
+	+ modify scanner to accommodate scripts which use the same name for
+	  some function-parameters as for a function (report by Kaz Kylheku).
+	+ amend/limit special case optimization for redundant wildwards
+	  (Original-Mawk #36).
+	+ regenerate parse.c using byacc 20230521
+
+20230525
+	+ fix a regression for big-endian machines caused by mismatch between
+	  printf/sprintf format and long integer types (Original-Mawk #69, cf:
+	  20200731).
+
+20230404
+	+ add a null-pointer check in bi_mktime() (Original-Mawk #57).
+	+ cast parameter of srand() to double if it is not already (patch by
+	  "q3cpma", Original-Mawk #66).   
+	+ manpage fixes (report/suggested by David Apps).
+	+ fix parsing of "--" token on command-line, from 20200828 changes
+	  (report by Pavel Vinogradov).
+	+ add a null-pointer check in the case for "-W" when parsing command
+	  options (Original-Mawk #68).
+	+ improve CF_XOPEN_SOURCE configure macro to avoid clearing the host's
+	  definition for _XOPEN_SOURCE if _POSIX_C_SOURCE is defined (report
+	  by A. Wilcox).
+	+ modify makefile "clean" rule to remove ".i" files.
+	+ modify configure script to allow for using clock_gettime vs
+	  gettimeofday.
+
+20230322
+	+ remove an unwanted string/number conversion in print.c, from changes
+	  in 20200717 (report by Jan Psota).
+	+ reduce compiler-warnings in configure script checks.
+
+20230215
+	+ update URLs, changing ftp to https
+	+ modify configure.in, moving checks for standard headers before the
+	  options, to improve check for arc4random (Redhat #2167291).
+
+20230203
+	+ split up do_printf to fix build with fortified mingw stdio.h
+	+ reduce compiler-warnings in configure script checks.
+
+20221229
+	+ fix shellcheck warnings in test-scripts.
+	+ updated configure macros
+	+ update config.guess, config.sub, and install-sh
+
+20210824
+	+ updated configure macros
+	+ update config.guess and config.sub
+
+20210528
+	+ add FreeBSD build-scripts, for test-builds
+	+ updated configure macros
+	+ update config.guess and config.sub
+
+20201023
+	+ start work on experimental approach to interval-expressions which
+	  does not involve loop-unrolling.
+	+ improve type-checking for builtin-regex's by using PTR only for the
+	  external-regex's.
+	+ improve dump format, showing intervals in curly-brace format.
+
+20201016
+	+ improve dump format, showing the jump-targets rather than offsets.
+
+20201009
+	+ show limits for brace-expressions in dump.
+	+ change RE_panic to stdarg, and log its message in trace file
+
+20200925
+	+ improve compatibility vs gawk/bwk in gsub handling of backslash by
+	  only escaping backslash with itself if those backslashes happen to
+	  precede a "&", e.g., "\\&" vs "\\" (Original-Mawk #14).
+	+ fix a regression in recent command-line option parsing.
+	+ modify configure/makefile to use .PHONY if available.
+	+ review/improve example-scripts
+
+20200918
+	+ build-fix for HP-UX 11.23, which lacks #define's for maximum of
+	  int64_t and uint64_t
+	+ build-fix for OpenBSD, which mis-types int64_t, just like macOS.
+	+ build-fix for macOS, which mis-types int64_t
+
+20200911
+	+ improve range of printf/sprintf for decimal formats by using the
+	  unsigned limit if the value is positive.
+	+ improve checks for command-line numeric options.
+	+ allow long-options to be abbreviated.
+
+20200828
+	+ modify configure script to move gcc -Werror flags to EXTRA_CFLAGS
+	  to avoid breaking configure-checks.
+	+ use sprintf-buffer for intermediate output of strftime, to handle
+	  extra-long format strings.
+	+ modify MAWK_LONG_OPTIONS "ignore" to limit that to the "-xxx" options
+	  in this set of changes, plus the existing --lint/--lint-old options.
+	+ allow -Wxxx options to use long-option format as -xxx, for better
+	  script-compatibility with gawk.
+	+ use standard output for -Whelp, but show usage message in standard
+	  error when no command arguments are given.
+	+ print version for -Wversion consistently in standard output.
+	+ improve use of const for making tables readonly.
+	+ change -W compat to -W traditional for better script-compatibility
+	  with gawk.
+
+20200821
+	+ completed first draft of mawk-code.7
+
+20200807
+	+ begin man/mawk-code.7
+	+ drop noweb dependency, move docs to man/mawk-arrays.7
+
+20200731
+	+ amend fix for Debian #303825 to more closely match gawk and BWK.
+	  Those use larger data types, e.g., long vs int, for limits, and also
+	  provide for using int64_t and uint64_t.  Internally, mawk now uses
+	  long long's where those are supported.
+	+ add --help and --version options
+
+20200724
+	+ modify logic for "{0}" in rexp.c so that a left-parenthesis is not
+	  trimmed when cancelling the previous token.
+	+ modify RE_cat to add a dummy M_ACCEPT as a workaround for logic in
+	  the new RE_init_it_cnt and RE_set_limit functions.
+	+ modify regexp_system.c to work with interval-expressions.
+	+ recognize gawk's --traditional and --posix as aliases for mawk's
+	  -W options, as well as -r and --re-interval to improve scripting
+	  compatibility.
+	+ add -W compat and -W posix, using the former to replace
+	  -W repetitions and the latter to replace -W posix_space
+	+ enable interval-expressions by default.
+
+20200717
+	+ add configure option "--disable-interval-expr"
+	> integrated/adapted changes by James Parkinson (jlp765):
+	+ add regexp intervals, 
+	+ add tests for intervals to test/mawktest and associated 
+	  test/repetitions files, 
+	+ add -W repetitions to enable r{m,n}
+	+ add man page updates to man/mawk.1
+
+20200708
+	+ update manpage comment about "nextfile" (AustinGroup #607).
+	+ amend manpage comment about "fflush" (AustinGroup #634).
+	+ amend manpage comment about "delete array" (AustinGroup #544).
+	+ updated configure macros
+	+ update config.guess and config.sub
 
 20200120
 	+ resync with my-autoconf.
@@ -34,8 +374,8 @@ Changes by Thomas E Dickey <dickey@invisible-island.net>
 
 20181114
 	+ revert a change for memory-leaks which made the forced-exit via a
-	  user function inconsistent with earlier versions (report by Sihera
-	  Andre).
+	  user function inconsistent with earlier versions (report by Andre
+	  Sihera).
 	+ amend a change for memory-leaks to avoid a double-free (Original-Mawk
 	  #56).
 

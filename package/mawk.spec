@@ -1,15 +1,16 @@
 Summary: mawk - pattern scanning and text processing language
-%define AppProgram mawk
-%define AppVersion 1.3.4
-%define AppRelease 20200120
-# $MawkId: mawk.spec,v 1.69 2020/01/20 11:21:53 tom Exp $
+%global AppProgram mawk
+%global AppVersion 1.3.4
+%global AppPatched 20250131
+%global MySite https://invisible-island.net
+# $MawkId: mawk.spec,v 1.140 2025/01/31 22:21:11 tom Exp $
 Name: %{AppProgram}
 Version: %{AppVersion}
-Release: %{AppRelease}
+Release: %{AppPatched}
 License: GPLv2
 Group: Applications/Development
-URL: ftp://ftp.invisible-island.net/%{AppProgram}
-Source0: %{AppProgram}-%{AppVersion}-%{AppRelease}.tgz
+URL: %{MySite}/%{AppProgram}
+Source0: %{MySite}/archives/%{AppProgram}-%{AppVersion}-%{AppPatched}.tgz
 Packager: Thomas Dickey <dickey@invisible-island.net>
 
 %description
@@ -20,7 +21,7 @@ prototyping and experimenting with algorithms.
 %prep
 
 %define debug_package %{nil}
-%setup -q -n %{AppProgram}-%{AppVersion}-%{AppRelease}
+%setup -q -n %{AppProgram}-%{AppVersion}-%{AppPatched}
 
 %build
 
@@ -48,9 +49,16 @@ strip $RPM_BUILD_ROOT%{_bindir}/%{AppProgram}
 %defattr(-,root,root)
 %{_prefix}/bin/%{AppProgram}
 %{_mandir}/man1/%{AppProgram}.*
+%{_mandir}/man7/%{AppProgram}-*.*
 
 %changelog
 # each patch should add its ChangeLog entries here
+
+* Wed Aug 02 2023 Thomas Dickey
+- add man7-pages for array/code
+
+* Thu Dec 29 2022 Thomas Dickey
+- update URLs
 
 * Mon Jan 06 2020 Thomas Dickey
 - use hardening flags
