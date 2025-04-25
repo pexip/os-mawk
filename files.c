@@ -1,7 +1,7 @@
 /********************************************
 files.c
-copyright 2008-2016,2019.  Thomas E. Dickey
-copyright 1991-1994,1996.  Michael D. Brennan
+copyright 2008-2023,2024, Thomas E. Dickey
+copyright 1991-1994,1996, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
 the AWK programming language.
@@ -11,16 +11,16 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: files.c,v 1.33 2019/01/30 00:37:08 tom Exp $
+ * $MawkId: files.c,v 1.42 2024/12/14 19:34:27 tom Exp $
  */
 
-/* files.c */
+#define Visible_STRING
 
-#include "mawk.h"
-#include "files.h"
-#include "memory.h"
-#include "fin.h"
-#include "init.h"
+#include <mawk.h>
+#include <files.h>
+#include <memory.h>
+#include <fin.h>
+#include <init.h>
 
 #include <sys/types.h>
 
@@ -39,6 +39,11 @@ the GNU General Public License, version 2, 1991.
 
 #else
 #define	 CLOSE_ON_EXEC(fd) ioctl(fd, FIOCLEX, (PTR) 0)
+#endif
+
+#ifdef	  HAVE_FSTAT
+#include <sys/types.h>
+#include <sys/stat.h>
 #endif
 
 /* We store dynamically created files on a linked linear
@@ -64,7 +69,7 @@ static FILE_NODE *file_list;
 
 static FILE *tfopen(const char *, const char *);
 static int efflush(FILE *);
-static void close_error(FILE_NODE * p);
+static GCC_NORETURN void close_error(FILE_NODE * p);
 
 static FILE_NODE *
 alloc_filenode(void)
@@ -74,10 +79,10 @@ alloc_filenode(void)
     result = ZMALLOC(FILE_NODE);
 
 #ifdef NO_LEAKS
-    result->name = 0;
+    result->name = NULL;
 #endif
 
-    result->ptr = 0;
+    result->ptr = NULL;
     return result;
 }
 
@@ -85,20 +90,43 @@ static void
 free_filenode(FILE_NODE * p)
 {
 #ifdef NO_LEAKS
-    if (p->name != 0) {
+    if (p->name != NULL) {
 	free_STRING(p->name);
     }
 #endif
     zfree(p, sizeof(FILE_NODE));
 }
 
-static void
+static GCC_NORETURN void
 output_failed(const char *name)
 {
     errmsg(errno, "cannot open \"%s\" for output", name);
     mawk_exit(2);
     /* NOTREACHED */
 }
+
+/*
+ * Most open-failures are recoverable, or affect only certain files.
+ * However, running out of file-descriptors indicates a problem with
+ * the script, and it is unlikely that recovery is possible.
+ */
+#ifdef EMFILE			/* (POSIX.1-2001) */
+#define input_failed(name, p) \
+ 	do { \
+	    if (errno == EMFILE) { \
+		errmsg(errno, "cannot open \"%s\" for input", name); \
+		mawk_exit(2); \
+	    } \
+	    free_filenode(p); \
+	    return (PTR) 0; \
+	} while (0)
+#else
+#define input_failed(name, p) \
+	do { \
+	    free_filenode(p); \
+	    return (PTR) 0; \
+	} while (0)
+#endif
 
 #if USE_BINMODE
 #define BinMode2(t,f) ((binmode() & 2) ? (t) : (f))
@@ -134,10 +162,8 @@ file_find(STRING * sval, int type)
 		break;
 
 	    case F_IN:
-		if (!(p->ptr = (PTR) FINopen(name, 0))) {
-		    free_filenode(p);
-		    return (PTR) 0;
-		}
+		if (!(p->ptr = (PTR) FINopen(name, 0)))
+		    input_failed(name, p);
 		break;
 
 	    case PIPE_OUT:
@@ -148,10 +174,8 @@ file_find(STRING * sval, int type)
 		if (!(p->ptr = get_pipe(name, type, &p->pid))) {
 		    if (type == PIPE_OUT)
 			output_failed(name);
-		    else {
-			free_filenode(p);
-			return (PTR) 0;
-		    }
+		    else
+			input_failed(name, p);
 		}
 #else
 		rt_error("pipes not supported");
@@ -171,7 +195,7 @@ file_find(STRING * sval, int type)
 
 	/* search is by name and type */
 	if (strcmp(name, p->name->str) == 0 &&
-	    (p->ptr != 0) &&
+	    (p->ptr != NULL) &&
 	    (p->type == type ||
 	/* no distinction between F_APPEND and F_TRUNC here */
 	     (p->type >= F_APPEND && type >= F_APPEND))) {
@@ -201,7 +225,7 @@ int
 file_close(STRING * sval)
 {
     FILE_NODE *p;
-    FILE_NODE *q = 0;		/* trails p */
+    FILE_NODE *q = NULL;	/* trails p */
     FILE_NODE *hold;
     char *name = sval->str;
     int retval = -1;
@@ -218,7 +242,7 @@ file_close(STRING * sval)
 	       Note that we don't have to consider the list corruption
 	       caused by a recursive call because it will never return. */
 
-	    if (q == 0)
+	    if (q == NULL)
 		file_list = p->link;
 	    else
 		q->link = p->link;
@@ -352,7 +376,7 @@ void
 close_out_pipes(void)
 {
     FILE_NODE *p = file_list;
-    FILE_NODE *q = 0;
+    FILE_NODE *q = NULL;
 
     while (p) {
 
@@ -361,7 +385,7 @@ close_out_pipes(void)
 		/* if another error occurs we do not want to be called
 		   for the same file again */
 
-		if (q != 0)
+		if (q != NULL)
 		    q->link = p->link;
 		else
 		    file_list = p->link;
@@ -453,7 +477,7 @@ get_pipe(char *name, int type, int *pid_ptr)
 	IGNORE_RC(dup(remote_fd));
 	close(remote_fd);
 	execl(shell, shell, "-c", name, (char *) 0);
-	errmsg(errno, "failed to exec %s -c %s", shell, name);
+	errmsg(errno, "failed to exec %s -c \"%s\"", shell, name);
 	fflush(stderr);
 	_exit(128);
 
@@ -616,6 +640,15 @@ tfopen(const char *name, const char *mode)
     FILE *retval = fopen(name, mode);
 
     if (retval) {
+#ifdef HAVE_FSTAT
+	struct stat sb;
+	int fd = fileno(retval);
+	if (fstat(fd, &sb) != -1 && (sb.st_mode & S_IFMT) == S_IFDIR) {
+	    fclose(retval);
+	    retval = NULL;
+	    errno = EISDIR;
+	} else
+#endif /* HAVE_FSTAT */
 	if (isatty(fileno(retval)))
 	    setbuf(retval, (char *) 0);
 	else {
@@ -660,7 +693,7 @@ static void
 close_error(FILE_NODE * p)
 {
     TRACE(("close_error(%s)\n", p->name->str));
-    errmsg(errno, "close failed on file %s", p->name->str);
+    errmsg(errno, "close failed on file \"%s\"", p->name->str);
 #ifdef NO_LEAKS
     free_filenode(p);
 #endif
@@ -672,7 +705,7 @@ void
 files_leaks(void)
 {
     TRACE(("files_leaks\n"));
-    while (file_list != 0) {
+    while (file_list != NULL) {
 	FILE_NODE *p = file_list;
 	file_list = p->link;
 	free_filenode(p);

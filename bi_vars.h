@@ -1,6 +1,6 @@
 /********************************************
 bi_vars.h
-copyright 2010, Thomas E. Dickey
+copyright 2010-2023,2024 Thomas E. Dickey
 copyright 1993, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,17 +11,7 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: bi_vars.h,v 1.8 2010/12/10 17:00:00 tom Exp $
- * @Log: bi_vars.h,v @
- * Revision 1.1.1.1  1993/07/03  18:58:09  mike
- * move source to cvs
- *
- * Revision 5.2  1992/07/10  16:17:10  brennan
- * MsDOS: remove NO_BINMODE macro
- *
- * Revision 5.1  1991/12/05  07:59:05  brennan
- * 1.1 pre-release
- *
+ * $MawkId: bi_vars.h,v 1.10 2024/08/25 17:17:31 tom Exp $
  */
 
 /* bi_vars.h */
@@ -29,7 +19,7 @@ the GNU General Public License, version 2, 1991.
 #ifndef  BI_VARS_H
 #define  BI_VARS_H  1
 
-#include "types.h"
+#include <types.h>
 
 /* builtin variables NF, RS, FS, OFMT are stored
    internally in field[], so side effects of assignment can

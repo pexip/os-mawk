@@ -1,6 +1,6 @@
 /********************************************
 scan.c
-copyright 2008-2016,2017, Thomas E. Dickey
+copyright 2008-2023,2024, Thomas E. Dickey
 copyright 2010, Jonathan Nieder
 copyright 1991-1996,2014, Michael D. Brennan
 
@@ -12,24 +12,57 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: scan.c,v 1.44 2017/10/17 01:05:54 tom Exp $
+ * $MawkId: scan.c,v 1.69 2024/12/14 21:21:20 tom Exp $
  */
 
-#include  "mawk.h"
-#include  "scan.h"
-#include  "memory.h"
-#include  "field.h"
-#include  "init.h"
-#include  "fin.h"
-#include  "repl.h"
-#include  "code.h"
+#define Visible_ARRAY
+#define Visible_CELL
+#define Visible_CODEBLOCK
+#define Visible_FBLOCK
+#define Visible_PFILE
+#define Visible_RE_DATA
+#define Visible_SEPARATOR
+#define Visible_STRING
+#define Visible_SYMTAB
 
-#ifdef	  HAVE_FCNTL_H
-#include  <fcntl.h>
+#include <mawk.h>
+#include <scan.h>
+#include <memory.h>
+#include <field.h>
+#include <init.h>
+#include <fin.h>
+#include <code.h>
+
+#ifdef HAVE_FCNTL_H
+#include <fcntl.h>
 #endif
 
-#include  "files.h"
+#include <files.h>
 
+#define CHR_LPAREN '('
+#define CHR_RPAREN ')'
+
+#define STR_LBRACE "{"
+#define STR_RBRACE "}"
+
+#define  ct_ret(x)  do { current_token = (x); return scan_scope(current_token); } while (0)
+
+#if OPT_TRACE > 1
+static int next(void);
+static void un_next(void);
+#else
+#define  next() (*buffp ? *buffp++ : slow_next())
+#define  un_next()  buffp--
+#endif
+
+#define  test1_ret(c,x,d)  if ( next() == (c) ) ct_ret(x) ;\
+                           else { un_next() ; ct_ret(d) ; }
+
+#define  test2_ret(c1,x1,c2,x2,d)   switch( next() )\
+                                   { case c1: ct_ret(x1) ;\
+                                     case c2: ct_ret(x2) ;\
+                                     default: un_next() ;\
+                                              ct_ret(d) ; }
 double double_zero = 0.0;
 double double_one = 1.0;
 
@@ -56,13 +89,39 @@ static UChar *buffp;
 static int program_fd;
 static int eof_flag;
 
+/*
+ * Data for scan_scope()
+ */
+#define MAX_REPAIR 10
+static SYMTAB *current_symbol;
+static SYMTAB *current_funct;
+
+typedef enum {
+    ssDEFAULT = 0
+    ,ssHEADER
+    ,ssFUNCTN
+    ,ssLPAREN
+    ,ssRPAREN
+    ,ssLBRACE
+    ,ssRBRACE
+} SCAN_SCOPE;
+
+static SCAN_SCOPE current_scope;
+static int braces_level;
+static int max_repair;
+static struct {
+    SYMTAB *stp;
+    SYM_TYPE type;
+} repair_syms[MAX_REPAIR];
+
 /* use unsigned chars for index into scan_code[] */
-#define NextUChar(c) (UChar)(c = (char) next())
+#define NextUChar(c) (UChar)(c = next())	/* use if c is not a char */
+#define NextChar(c)  (UChar)(c = (char) next())		/* use if c is a char */
 
 /* overused tmp buffer */
 char string_buff[SPRINTF_LIMIT];
 
-static void
+static GCC_NORETURN void
 string_too_long(void)
 {
     compile_error("string too long \"%.10s ...", string_buff);
@@ -110,7 +169,7 @@ scan_open(void)			/* open pfile_name */
     if (pfile_name[0] == '-' && pfile_name[1] == 0) {
 	program_fd = 0;
     } else if ((program_fd = open(pfile_name, O_RDONLY, 0)) == -1) {
-	errmsg(errno, "cannot open %s", pfile_name);
+	errmsg(errno, "cannot open \"%s\"", pfile_name);
 	mawk_exit(2);
     }
 }
@@ -169,6 +228,8 @@ scan_fillbuff(void)
 	/* make sure eof is terminated */
 	buffer[r] = '\n';
 	buffer[r + 1] = 0;
+    } else {
+	buffer[r] = 0;
     }
 }
 
@@ -176,7 +237,6 @@ scan_fillbuff(void)
 static int
 slow_next(void)
 {
-
     while (*buffp == 0) {
 	if (!eof_flag) {
 	    buffp = buffer;
@@ -198,8 +258,31 @@ slow_next(void)
 	}
     }
 
-    return *buffp++;		/* note can un_next() , eof which is zero */
+    return 0xff & *buffp++;	/* note can un_next(), eof which is zero */
 }
+
+#if OPT_TRACE > 1
+#define SHOW(tag,c) \
+	TRACE((((c) >= ' ' && (c) <= '~') ? "%s %c\n" : "%s 0x%x\n", tag, c))
+static int
+next(void)
+{
+    int ch;
+    if (*buffp != '\0') {
+	ch = *buffp++;
+    } else {
+	ch = slow_next();
+    }
+    SHOW("* GET", ch);
+    return ch;
+}
+static void
+un_next(void)
+{
+    buffp--;
+    SHOW("UNGET", *buffp);
+}
+#endif
 
 static void
 eat_comment(void)
@@ -268,8 +351,6 @@ eat_nl(void)			/* eat all space including newlines */
 		    /* can't un_next() twice so deal with it */
 		    yylval.ival = '\\';
 		    unexpected_char();
-		    if (++compile_error_count == MAX_COMPILE_ERRORS)
-			mawk_exit(2);
 		    return;
 		}
 	    }
@@ -280,6 +361,68 @@ eat_nl(void)			/* eat all space including newlines */
 	    return;
 	}
     }
+}
+
+/*
+ * Function parameters are local to a function, but because mawk uses a single
+ * hash table, it may have conflicts with global symbols (function names).
+ * Work around this by saving the conflicting symbol, overriding it an ordinary
+ * symbol and restoring at the end of the function.
+ */
+static int
+scan_scope(int state)
+{
+    switch (state) {
+    case FUNCTION:
+	if (braces_level == 0)
+	    current_scope = ssHEADER;
+	break;
+    case LPAREN:
+	if (current_scope == ssFUNCTN)
+	    current_scope = ssLPAREN;
+	break;
+    case FUNCT_ID:
+	if (current_scope == ssHEADER) {
+	    current_scope = ssFUNCTN;
+	    current_funct = current_symbol;
+	} else if (current_scope == ssLPAREN) {
+	    if (current_symbol == current_funct) {
+		compile_error("function parameter cannot be the function");
+	    } else if (max_repair < MAX_REPAIR) {
+		repair_syms[max_repair].stp = current_symbol;
+		repair_syms[max_repair].type = current_symbol->type;
+		++max_repair;
+		state = ID;
+	    } else {
+		compile_error("too many local/global symbol conflicts");
+	    }
+	}
+	break;
+    case RPAREN:
+	if (current_scope == ssLPAREN)
+	    current_scope = ssRPAREN;
+	break;
+    case LBRACE:
+	++braces_level;
+	if (current_scope == ssRPAREN)
+	    current_scope = ssLBRACE;
+	break;
+    case RBRACE:
+	if (braces_level > 0 && current_scope == ssLBRACE) {
+	    if (--braces_level == 0) {
+		current_scope = ssDEFAULT;
+		while (max_repair > 0) {
+		    --max_repair;
+		    (repair_syms[max_repair].stp)->type =
+			repair_syms[max_repair].type;
+		}
+	    }
+	} else {
+	    current_scope = ssDEFAULT;
+	}
+	break;
+    }
+    return state;
 }
 
 int
@@ -314,7 +457,7 @@ yylex(void)
     case SC_ESCAPE:
 	while (scan_code[NextUChar(c)] == SC_SPACE) {
 	    ;			/* empty */
-	};
+	}
 	if (c == '\n') {
 	    token_lineno = ++lineno;
 	    goto reswitch;
@@ -427,8 +570,8 @@ yylex(void)
 	ct_ret(RBOX);
 
     case SC_MATCH:
-	string_buff[1] = '~';
-	string_buff[0] = 0;
+	string_buff[0] = '~';
+	string_buff[1] = 0;
 	yylval.ival = 1;
 	ct_ret(MATCH);
 
@@ -475,7 +618,7 @@ yylex(void)
 		yylval.ival = F_TRUNC;
 		string_buff[1] = 0;
 	    }
-	    return current_token = IO_OUT;
+	    ct_ret(IO_OUT);
 	}
 
 	test1_ret('=', GTE, GT);
@@ -515,7 +658,7 @@ yylex(void)
 
     case SC_RBRACE:
 	if (--brace_cnt < 0) {
-	    compile_error("extra '}'");
+	    compile_error("extra '" STR_RBRACE "'");
 	    eat_semi_colon();
 	    brace_cnt = 0;
 	    goto reswitch;
@@ -536,11 +679,11 @@ yylex(void)
 	}
 
 	/* supply missing semi-colon to statement that
-	   precedes a '}' */
+	   precedes a right-brace */
 	brace_cnt++;
 	un_next();
 	current_token = SC_FAKE_SEMI_COLON;
-	return SEMI_COLON;
+	return scan_scope(SEMI_COLON);
 
     case SC_DIGIT:
     case SC_DOT:
@@ -569,7 +712,7 @@ yylex(void)
 
 	    while (scan_code[NextUChar(c)] == SC_SPACE) {
 		;		/* empty */
-	    };
+	    }
 	    if (scan_code[c] != SC_DIGIT &&
 		scan_code[c] != SC_DOT) {
 		un_next();
@@ -583,19 +726,19 @@ yylex(void)
 		else
 		    yylval.cp = &field[0];
 	    } else {
-		int ival = d_to_I(d);
+		Int ival = d_to_I(d);
 		double dval = (double) ival;
 		if (dval != d) {
 		    compile_error("$%g is invalid field index", d);
 		}
-		yylval.cp = field_ptr(ival);
+		yylval.cp = field_ptr((int) ival);
 	    }
 
 	    ct_ret(FIELD);
 	}
 
     case SC_DQUOTE:
-	return current_token = collect_string();
+	ct_ret(collect_string());
 
     case SC_IDCHAR:		/* collect an identifier */
 	{
@@ -606,7 +749,7 @@ yylex(void)
 
 	    while (1) {
 		CheckStringSize(p);
-		c = scan_code[NextUChar(*p++)];
+		c = scan_code[NextChar(*p++)];
 		if (c != SC_IDCHAR && c != SC_DIGIT)
 		    break;
 	    }
@@ -614,13 +757,13 @@ yylex(void)
 	    un_next();
 	    *--p = 0;
 
-	    switch ((stp = find(string_buff))->type) {
+	    current_symbol = stp = find(string_buff);
+	    switch (stp->type) {
 	    case ST_NONE:
 		/* check for function call before defined */
-		if (next() == '(') {
+		if (next() == CHR_LPAREN) {
 		    stp->type = ST_FUNCT;
-		    stp->stval.fbp = (FBLOCK *)
-			zmalloc(sizeof(FBLOCK));
+		    stp->stval.fbp = ZMALLOC(FBLOCK);
 		    stp->stval.fbp->name = stp->name;
 		    stp->stval.fbp->code = (INST *) 0;
 		    stp->stval.fbp->size = 0;
@@ -673,20 +816,6 @@ yylex(void)
 		current_token = BUILTIN;
 		break;
 
-	    case ST_LENGTH:
-
-		yylval.bip = stp->stval.bip;
-
-		/* check for length alone, this is an ugly
-		   hack */
-		while (scan_code[NextUChar(c)] == SC_SPACE) {
-		    ;		/* empty */
-		};
-		un_next();
-
-		current_token = c == '(' ? BUILTIN : LENGTH;
-		break;
-
 	    case ST_FIELD:
 		yylval.cp = stp->stval.cp;
 		current_token = FIELD;
@@ -695,14 +824,14 @@ yylex(void)
 	    default:
 		bozo("find returned bad st type");
 	    }
-	    return current_token;
+	    return scan_scope(current_token);
 	}
 
     case SC_UNEXPECTED:
 	yylval.ival = c & 0xff;
 	ct_ret(UNEXPECTED);
     }
-    return 0;			/* never get here make lint happy */
+    return scan_scope(0);	/* never get here make lint happy */
 }
 
 /* collect a decimal constant in temp_buff.
@@ -714,7 +843,7 @@ collect_decimal(int c, int *flag)
     register char *p = string_buff + 1;
     char *endp;
     char *temp;
-    char *last_decimal = 0;
+    char *last_decimal = NULL;
     double d;
 
     *flag = 0;
@@ -723,7 +852,7 @@ collect_decimal(int c, int *flag)
     if (c == '.') {
 	last_decimal = p - 1;
 	CheckStringSize(p);
-	if (scan_code[NextUChar(*p++)] != SC_DIGIT) {
+	if (scan_code[NextChar(*p++)] != SC_DIGIT) {
 	    *flag = UNEXPECTED;
 	    yylval.ival = '.';
 	    return 0.0;
@@ -731,7 +860,7 @@ collect_decimal(int c, int *flag)
     } else {
 	while (1) {
 	    CheckStringSize(p);
-	    if (scan_code[NextUChar(*p++)] != SC_DIGIT) {
+	    if (scan_code[NextChar(*p++)] != SC_DIGIT) {
 		break;
 	    }
 	};
@@ -745,7 +874,7 @@ collect_decimal(int c, int *flag)
     /* get rest of digits after decimal point */
     while (1) {
 	CheckStringSize(p);
-	if (scan_code[NextUChar(*p++)] != SC_DIGIT) {
+	if (scan_code[NextChar(*p++)] != SC_DIGIT) {
 	    break;
 	}
     }
@@ -755,7 +884,7 @@ collect_decimal(int c, int *flag)
 	un_next();
 	*--p = 0;
     } else {			/* get the exponent */
-	if (scan_code[NextUChar(*p)] != SC_DIGIT &&
+	if (scan_code[NextChar(*p)] != SC_DIGIT &&
 	    *p != '-' && *p != '+') {
 	    /* if we can, undo and try again */
 	    if (buffp - buffer >= 2) {
@@ -771,7 +900,7 @@ collect_decimal(int c, int *flag)
 	    p++;
 	    while (1) {
 		CheckStringSize(p);
-		if (scan_code[NextUChar(*p++)] != SC_DIGIT) {
+		if (scan_code[NextChar(*p++)] != SC_DIGIT) {
 		    break;
 		}
 	    }
@@ -960,9 +1089,26 @@ rm_escape(char *s, size_t *lenp)
     }
 
     *q = 0;
-    if (lenp != 0)
+    if (lenp != NULL)
 	*lenp = (unsigned) (q - s);
     return s;
+}
+
+char *
+safe_string(char *value)
+{
+    char *result = strdup(value);
+    if (result == NULL) {
+	result = value;
+    } else {
+	char *s;
+	/* replace nonprintable characters with '@', which is illegal too */
+	for (s = result; *s != '\0'; ++s) {
+	    if (scan_code[(UChar) * s] == SC_UNEXPECTED)
+		*s = '@';
+	}
+    }
+    return result;
 }
 
 static int
@@ -975,7 +1121,7 @@ collect_string(void)
 
     while (1) {
 	CheckStringSize(p);
-	switch (scan_code[NextUChar(*p++)]) {
+	switch (scan_code[NextChar(*p++)]) {
 	case SC_DQUOTE:	/* done */
 	    *--p = 0;
 	    goto out;
@@ -987,7 +1133,7 @@ collect_string(void)
 	case 0:		/* unterminated string */
 	    compile_error(
 			     "runaway string constant \"%.10s ...",
-			     string_buff);
+			     safe_string(string_buff));
 	    mawk_exit(2);
 
 	case SC_ESCAPE:
@@ -1037,10 +1183,10 @@ collect_RE(void)
 	    mawk_exit(2);
 	}
 	CheckStringSize(p);
-	switch (scan_code[NextUChar(c = *p++)]) {
+	switch (scan_code[NextChar(c = *p++)]) {
 	case SC_POW:
 	    /* Handle [^]] and [^^] correctly. */
-	    if ((p - 1) == first && first != 0 && first[-1] == '[') {
+	    if ((p - 1) == first && first != NULL && first[-1] == '[') {
 		first = p;
 	    }
 	    break;
@@ -1094,7 +1240,7 @@ collect_RE(void)
 	case 0:		/* unterminated re */
 	    compile_error(
 			     "runaway regular expression /%.10s ...",
-			     string_buff);
+			     safe_string(string_buff));
 	    mawk_exit(2);
 
 	case SC_ESCAPE:
@@ -1134,7 +1280,7 @@ scan_leaks(void)
     TRACE(("scan_leaks\n"));
     if (yylval.ptr) {
 	free(yylval.ptr);
-	yylval.ptr = 0;
+	yylval.ptr = NULL;
     }
 }
 #endif

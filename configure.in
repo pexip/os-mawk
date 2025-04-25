@@ -1,7 +1,7 @@
-dnl $MawkId: configure.in,v 1.60 2020/01/20 11:43:28 tom Exp $
+dnl $MawkId: configure.in,v 1.77 2024/12/14 00:43:08 tom Exp $
 dnl configure.in for mawk
 dnl ###########################################################################
-dnl copyright 2008-2019,2020, Thomas E. Dickey
+dnl copyright 2008-2023,2024, Thomas E. Dickey
 dnl copyright 1991-1994,1995, Michael D. Brennan
 dnl
 dnl This is a source file for mawk, an implementation of
@@ -11,7 +11,7 @@ dnl Mawk is distributed without warranty under the terms of
 dnl the GNU General Public License, version 2, 1991.
 dnl ###########################################################################
 dnl
-AC_PREREQ(2.52.20190901)
+AC_PREREQ(2.52.20230114)
 AC_INIT(mawk.h)
 
 AC_CONFIG_HEADER(config.h:config_h.in)
@@ -23,8 +23,17 @@ AC_DEFUN([AC_PATH_XTRA],[])
 CF_PROG_CC
 AC_PROG_MAKE_SET
 CF_MAKEFLAGS
+CF_MAKE_PHONY
 AC_PROG_CPP
 AC_PROG_INSTALL
+
+AC_PROG_YACC
+CF_PROG_LINT
+CF_MAKE_TAGS
+
+CF_XOPEN_SOURCE
+CF_LARGEFILE
+AC_CHECK_DECL(exit)
 
 CF_HELP_MESSAGE(Cross-compiling)
 CF_BUILD_CC
@@ -45,7 +54,7 @@ AC_ARG_WITH([builtin-regex],
 ])
 if test "x${with_builtin_regex}" != xno; then
 	with_builtin_regex=yes
-    CPPFLAGS="$CPPFLAGS -DLOCAL_REGEXP"
+    AC_DEFINE(LOCAL_REGEXP,1,[define to 1 to use mawk's own regular-expressions engine])
 fi
 AC_MSG_RESULT($with_builtin_regex)
 
@@ -65,9 +74,10 @@ fi
 AC_MSG_RESULT($with_builtin_srand)
 
 if test "x${with_builtin_srand}" = xno; then
-    CF_SRAND(mawk_)
+    CF_SRAND(mawk_,no)
 	AC_DEFINE_UNQUOTED(NAME_RANDOM, "$cf_cv_srand_func", [Define to the name of the random-function])
 fi
+
 ###############################################################################
 AC_MSG_CHECKING(if you want mawk to initialize random numbers at startup)
 CF_ARG_DISABLE([init-srand],
@@ -77,17 +87,24 @@ CF_ARG_DISABLE([init-srand],
 if test "x${with_init_srand}" != xno; then
 	with_init_srand=yes
 else
-    CPPFLAGS="$CPPFLAGS -DNO_INIT_SRAND"
+    AC_DEFINE(NO_INIT_SRAND,1,[define to 1 to suppress automatic initialization of random numbers])
 fi
 AC_MSG_RESULT($with_init_srand)
 
 ###############################################################################
+AC_MSG_CHECKING(if you want mawk to support regex interval expressions {m[,]n})
+CF_ARG_DISABLE([interval-expr],
+[  --disable-interval-expr suppress regex interval expressions {m,n}],
+	[with_interval_expr=no],
+	[with_interval_expr=yes])
+if test "x${with_interval_expr}" != xno; then
+	with_interval_expr=yes
+else
+    AC_DEFINE(NO_INTERVAL_EXPR,1,[define to 1 to suppress regex interval expressions {m,n}])
+fi
+AC_MSG_RESULT($with_interval_expr)
 
-AC_PROG_YACC
-CF_PROG_LINT
-CF_MAKE_TAGS
-CF_XOPEN_SOURCE
-CF_LARGEFILE
+###############################################################################
 
 CF_HELP_MESSAGE(Testing-options)
 CF_DISABLE_LEAKS
@@ -100,11 +117,23 @@ then
 fi
 AC_SUBST(EXTRAOBJS)
 
+AC_CHECK_HEADERS(errno.h fcntl.h sys/time.h sys/wait.h)
+
+AC_CHECK_TYPES([int64_t, uint64_t, long long])
+
+AC_CHECK_SIZEOF(float)
+AC_CHECK_SIZEOF(double)
+AC_CHECK_SIZEOF(long)
+AC_CHECK_SIZEOF(int64_t)
+AC_CHECK_SIZEOF(long long)
+
 CF_MAWK_FIND_SIZE_T
+
 CF_LOCALE
 CF_CHECK_ENVIRON(environ)
 
-AC_CHECK_FUNCS(fork gettimeofday matherr mktime pipe strftime tdestroy tsearch wait)
+AC_CHECK_FUNCS(fork fstat matherr mktime pipe strftime tsearch wait)
+CF_FUNC_GETTIME
 
 ###	Checks for libraries.
 case $cf_cv_system_name in
@@ -119,10 +148,9 @@ test "$ac_cv_func_pipe" = yes && \
 test "$ac_cv_func_wait" = yes && \
 AC_DEFINE(HAVE_REAL_PIPES,1,[Define to 1 if we have functions needed to setup Unix pipes])
 
-AC_CHECK_HEADERS(errno.h fcntl.h unistd.h sys/wait.h)
-
 CF_SET_MATH_LIB_VERSION
 CF_MAWK_FIND_MAX_INT
 CF_MAWK_RUN_FPE_TESTS
 
-AC_OUTPUT(Makefile man/Makefile)
+AC_CONFIG_FILES([Makefile man/Makefile])
+AC_OUTPUT

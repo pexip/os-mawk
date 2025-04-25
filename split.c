@@ -1,6 +1,6 @@
 /********************************************
 split.c
-copyright 2008-2014,2020 Thomas E. Dickey
+copyright 2008-2020,2024 Thomas E. Dickey
 copyright 1991-1996,2014 Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,29 +11,30 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: split.c,v 1.30 2020/01/20 11:22:11 tom Exp $
- * @Log: split.c,v @
- * Revision 1.3  1996/02/01  04:39:42  mike
- * dynamic array scheme
+ * $MawkId: split.c,v 1.37 2024/12/14 12:53:38 tom Exp $
  */
 
-/* split.c */
+#define Visible_BI_REC
+#define Visible_CELL
+#define Visible_RE_DATA
+#define Visible_STRING
 
-#include "mawk.h"
-#include "split.h"
-#include "symtype.h"
-#include "bi_vars.h"
-#include "bi_funct.h"
-#include "memory.h"
-#include "scan.h"
-#include "regexp.h"
-#include "repl.h"
-#include "field.h"
+#include <mawk.h>
+#include <split.h>
+#include <symtype.h>
+#include <bi_vars.h>
+#include <bi_funct.h>
+#include <memory.h>
+#include <scan.h>
+#include <regexp.h>
+#include <field.h>
 
+#ifndef SP_SIZE
 #ifdef NO_LEAKS
 #define SP_SIZE    4		/* exercises split_block_list code */
 #else
 #define SP_SIZE  2048
+#endif
 #endif
 
 typedef struct split_block {
@@ -44,16 +45,16 @@ typedef struct split_block {
 static Split_Block_Node split_block_base;
 static Split_Block_Node *split_block_list = &split_block_base;
 
-/* usually the list is of size 1
-   the list never gets smaller than size 1
-   this function returns a bigger list to size 1
-*/
-
+/*
+ * Usually the list is of size 1.
+ * The list never gets smaller than size 1.
+ * This function returns a bigger list to size 1.
+ */
 static void
 spb_list_shrink(void)
 {
     Split_Block_Node *p = split_block_list->link;
-    split_block_list->link = 0;
+    split_block_list->link = NULL;
     while (p) {
 	Split_Block_Node *hold = p;
 	p = p->link;
@@ -61,23 +62,23 @@ spb_list_shrink(void)
     }
 }
 
-/* this function is passed a pointer to the tail of the list,
-   adds a new node and returns the new tail
-   This makes the list one node bigger
-*/
-
+/*
+ * This function is passed a pointer to the tail of the list,
+ * adds a new node and returns the new tail
+ * This makes the list one node bigger
+ */
 static Split_Block_Node *
 grow_sp_list(Split_Block_Node * tail)
 {
     tail->link = (Split_Block_Node *) zmalloc(sizeof(Split_Block_Node));
     tail = tail->link;
-    tail->link = 0;
+    tail->link = NULL;
     return tail;
 }
 
 /*
  * Split string s of length slen on SPACE without changing s.
- * Load the pieces into STRINGS 
+ * Load the pieces into STRINGS
  * return the number of pieces
  */
 size_t
@@ -111,6 +112,9 @@ space_split(const char *s, size_t slen)
     /* not reached */
 }
 
+/*
+ * re is an (RE_DATA *) with compiled PTR holding the compiled RE
+ */
 size_t
 re_split(char *s, size_t slen, PTR re)
 {
@@ -144,18 +148,19 @@ re_split(char *s, size_t slen, PTR re)
 	}
     }
     /* last match at end of s, so last field is "" */
-    node_p->strings[idx] = new_STRING0(0);
+    node_p->strings[idx] = new_STRING0((size_t) 0);
     return ++cnt;
 }
 
-/* match a string with a regular expression, but
- * only matches of positive length count
- * input a string str and its length
+/*
+ * Matches a string with a regular expression, but only matches of positive
+ * length count.
+ * input is a string str and its length.
  * return is match point else 0 if no match
  * length of match is returned in *lenp
  */
 char *
-re_pos_match(char *str, size_t str_len, PTR re, size_t *lenp, int no_bol)
+re_pos_match(char *str, size_t str_len, RE_NODE * re, size_t *lenp, int no_bol)
 {
     const char *end = str + str_len;
 
@@ -175,15 +180,16 @@ re_pos_match(char *str, size_t str_len, PTR re, size_t *lenp, int no_bol)
 	} else {
 	    /* no match */
 	    *lenp = 0;
-	    return 0;
+	    return NULL;
 	}
     }
     *lenp = 0;
-    return 0;
+    return NULL;
 }
 
-/* like space split but splits s into single character strings */
-
+/*
+ * like space split but splits s into single character strings
+ */
 size_t
 null_split(const char *s, size_t slen)
 {
@@ -192,7 +198,7 @@ null_split(const char *s, size_t slen)
     unsigned idx = 0;
 
     while (s < end) {
-	node_p->strings[idx] = new_STRING1(s++, 1);
+	node_p->strings[idx] = new_STRING1(s++, (size_t) 1);
 	if (++idx == SP_SIZE) {
 	    idx = 0;
 	    node_p = grow_sp_list(node_p);
@@ -201,13 +207,12 @@ null_split(const char *s, size_t slen)
     return slen;
 }
 
-/* The caller knows there are cnt STRING* in the split_block_list
+/*
+ * The caller knows there are cnt STRING* in the split_block_list
  * buffers.  This function uses them to make CELLs in cp[]
  * The target CELLs are virgin, they don't need to be
  * destroyed
- *
  */
-
 void
 transfer_to_array(CELL cp[], size_t cnt)
 {
@@ -227,12 +232,11 @@ transfer_to_array(CELL cp[], size_t cnt)
 	spb_list_shrink();
 }
 
-/* like above but transfers the saved pieces to $1, $2 ... $cnt
+/*
+ * like above but transfers the saved pieces to $1, $2 ... $cnt
  * The target CELLs may be string type so need to be destroyed
  * The caller has made sure the target CELLs exist
- * 
-*/
-
+ */
 void
 transfer_to_fields(size_t cnt)
 {
@@ -271,8 +275,8 @@ transfer_to_fields(size_t cnt)
  *	   sp[-1] pts at X
  *	   sp[-2] holds s
  *
-      exit :  sp is 2 less,   sp[0] is C_DOUBLE CELL with value equal
-              to the number of split pieces
+ *    exit :  sp is 2 less,   sp[0] is C_DOUBLE CELL with value equal
+ *            to the number of split pieces
  */
 CELL *
 bi_split(CELL *sp)

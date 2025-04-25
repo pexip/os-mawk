@@ -1,6 +1,6 @@
 /********************************************
 rexp0.c
-copyright 2008-2016,2020, Thomas E. Dickey
+copyright 2008-2020,2024, Thomas E. Dickey
 copyright 2010, Jonathan Nieder
 copyright 1991-1994,1996, Michael D. Brennan
 
@@ -12,13 +12,13 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: rexp0.c,v 1.34 2020/01/20 11:46:45 tom Exp $
+ * $MawkId: rexp0.c,v 1.52 2024/12/30 19:17:41 tom Exp $
  */
 
 /*  lexical scanner  */
 
 #undef LOCAL_REGEXP		/* no need for push/pop */
-#include  "rexp.h"
+#include  <rexp.h>
 
 #include <ctype.h>
 
@@ -53,7 +53,7 @@ char char2token[] =
     T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR,	/*67*/
     T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR,	/*6f*/
     T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR,	/*77*/
-    T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_OR,   T_CHAR, T_CHAR, T_CHAR,	/*7f*/
+    T_CHAR, T_CHAR, T_CHAR, T_LB,   T_OR,   T_RB,   T_CHAR, T_CHAR,     /*7f*/
     T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR,	/*87*/
     T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR,	/*8f*/
     T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR, T_CHAR,	/*97*/
@@ -77,17 +77,129 @@ char char2token[] =
 
 static int prev;
 static size_t nest;
-static char *lp;		/*  ptr to reg exp string  */
-static char *re_str;		/*  base of 'lp' */
+char *re_exp;			/*  ptr to reg exp string  */
+static char *re_str;		/*  base of 're_exp' */
 static size_t re_len;
+
+#ifndef NO_INTERVAL_EXPR
+Int intrvalmin;
+Int intrvalmax;
+
+/*
+ * Given a string beginning with T_LB, check if that is an interval expression.
+ */
+static int
+ok_intervals(const char *p)
+{
+    int result = 0;
+    int comma = 0;
+    int ch;
+    while ((ch = (UChar) * ++p) != '\0') {
+	if (ch == R_CURL) {
+	    result = 1;
+	    break;
+	} else if (isdigit(ch)) {
+	    ;			/* zero or more digits */
+	} else if (ch == ',') {
+	    if (++comma > 1) {
+		break;		/* zero or one commas */
+	    }
+	} else {
+	    break;
+	}
+    }
+    return result;
+}
+
+/*
+  Collect two numbers between T_LB and T_RB, saving
+  the values in intrvalmin and intrvalmax.
+
+  There are three ways the interval expressions are formed:
+  {n}   => previous regexp is repeated n times
+  {n,m} => previous regexp is repeated n to m times
+  {n,}  => previous regexp is repeated n or more times
+  {,m}  => {0,m}
+  Note: awk doesn't define  {,m}
+
+  returns: T_RB, or on error T_CHAR
+*/
+
+static int
+do_intervals(
+		char **pp)	/* where to put the re_char pointer on exit */
+{
+    register char *p;		/* runs thru the input */
+
+    p = *pp;
+
+    intrvalmin = 0;
+    intrvalmax = 0;
+    if (!isdigit((UChar) * p) && *p != ',')	/* error */
+    {
+	RE_error_trap(-ERR_7);
+    }
+
+    if (*p != ',') {
+	intrvalmin = intrvalmin * 10 + *p++ - '0';
+
+	while (*p != '\0') {
+	    if (isdigit((UChar) * p)) {
+		intrvalmin = intrvalmin * 10 + *p++ - '0';
+	    } else if ((UChar) * p == R_CURL) {
+		p++;
+		*pp = p;
+		intrvalmax = intrvalmin;	/* {n} */
+		return T_RB;
+	    } else if ((UChar) * p == ',') {
+		if ((UChar) * ++p == R_CURL) {
+		    p++;
+		    *pp = p;
+		    intrvalmax = MAX__INT;
+		    return T_RB;	/* {n,} */
+		}
+		break;
+	    } else {
+		p++;
+		*pp = p;
+		RE_error_trap(-ERR_7);
+	    }
+	}
+    } else {
+	p++;
+    }
+    while (*p != '\0') {
+	if (isdigit((UChar) * p)) {
+	    intrvalmax = intrvalmax * 10 + *p++ - '0';
+	} else if ((UChar) * p == R_CURL) {
+	    if (intrvalmax < intrvalmin) {
+		RE_error_trap(-ERR_7);
+	    }
+	    p++;
+	    break;
+	} else {
+	    p++;
+	    *pp = p;
+	    RE_error_trap(-ERR_7);
+	}
+    }
+
+    *pp = p;
+    return T_RB;
+}
+#endif /* ! NO_INTERVAL_EXPR */
 
 void
 RE_lex_init(char *re, size_t len)
 {
-    re_str = lp = re;
+    re_str = re_exp = re;
     re_len = len + 1;
     prev = NOT_STARTED;
     nest = 0;
+#ifndef NO_INTERVAL_EXPR
+    intrvalmin = 0;
+    intrvalmax = 0;		/* {n,} sets max to -1 */
+#endif
     RE_run_stack_init();
     RE_pos_stack_init();
 }
@@ -99,8 +211,8 @@ RE_lex_init(char *re, size_t len)
  * before returning the appropriate token, this will write the
  * corresponding machine to *mp.
  *
- * For the rest (T_PLUS, T_STAR, T_OR, T_Q, T_RP, T_LP, and T_CAT), *mp
- * is left alone.
+ * For the rest (T_PLUS, T_STAR, T_OR, T_Q, T_RP, T_LP, T_LB,
+ *                T_RB, T_CAT),  *mp is left alone.
  *
  * Returns 0 for end of regexp.
  */
@@ -108,17 +220,29 @@ int
 RE_lex(MACHINE * mp)
 {
     /*
-     * lp records the current position while parsing.
+     * re_exp records the current position while parsing.
      * nest records the parenthesis nesting level.
      * prev records the last token returned.
      */
     register int c;
 
-    if ((unsigned) (1 + lp - re_str) >= re_len) {
+    if ((unsigned) (1 + re_exp - re_str) >= re_len) {
 	return 0;
     }
 
-    switch (c = char2token[(UChar) (*lp)]) {
+    c = char2token[(UChar) (*re_exp)];
+#ifndef NO_INTERVAL_EXPR
+    if (repetitions_flag) {
+	if (c == T_LB && !ok_intervals(re_exp))
+	    c = T_CHAR;
+    } else {
+	if (c == T_LB || c == T_RB) {
+	    c = T_CHAR;
+	}
+    }
+#endif
+
+    switch (c) {
     case T_PLUS:
     case T_STAR:
 	if (prev == T_START)
@@ -127,8 +251,15 @@ RE_lex(MACHINE * mp)
 
     case T_OR:
     case T_Q:
-	lp++;
+	re_exp++;
 	return prev = c;
+
+#ifndef NO_INTERVAL_EXPR
+    case T_LB:
+	re_exp++;
+	prev = T_LB;
+	break;
+#endif
 
     case T_RP:
 	if (!nest) {
@@ -137,7 +268,7 @@ RE_lex(MACHINE * mp)
 	    break;
 	}
 	nest--;
-	lp++;
+	re_exp++;
 	return prev = c;
 
     case 0:
@@ -145,6 +276,9 @@ RE_lex(MACHINE * mp)
 
     case T_LP:
 	switch (prev) {
+#ifndef NO_INTERVAL_EXPR
+	case T_RB:
+#endif
 	case T_CHAR:
 	case T_STR:
 	case T_ANY:
@@ -157,14 +291,15 @@ RE_lex(MACHINE * mp)
 	case T_U:
 	    return prev = T_CAT;
 
+	    /* FALLTHRU */
 	default:
 	    nest++;
-	    lp++;
+	    re_exp++;
 	    return prev = T_LP;
-	}
+	}			/* T_LP switch */
     }
 
-    /*  *lp  is  an operand, but implicit cat op is possible   */
+    /*  *re_exp  is  an operand, but implicit cat op is possible   */
     switch (prev) {
     case NOT_STARTED:
     case T_OR:
@@ -176,19 +311,19 @@ RE_lex(MACHINE * mp)
 	    {
 		static int plus_is_star_flag = 0;
 
-		if (*++lp == '*') {
-		    lp++;
+		if (*++re_exp == '*') {
+		    re_exp++;
 		    *mp = RE_u();
 		    return prev = T_U;
-		} else if (*lp == '+') {
+		} else if (*re_exp == '+') {
 		    if (plus_is_star_flag) {
-			lp++;
+			re_exp++;
 			*mp = RE_u();
 			plus_is_star_flag = 0;
 			return prev = T_U;
 		    } else {
 			plus_is_star_flag = 1;
-			lp--;
+			re_exp--;
 			*mp = RE_any();
 			return prev = T_ANY;
 		    }
@@ -200,35 +335,49 @@ RE_lex(MACHINE * mp)
 	    break;
 
 	case T_SLASH:
-	    lp++;
-	    c = escape(&lp);
-	    prev = do_str(c, &lp, mp);
+	    re_exp++;
+	    c = escape(&re_exp);
+	    prev = do_str(c, &re_exp, mp);
 	    break;
 
+#ifndef NO_INTERVAL_EXPR
+	case T_LB:
+	case T_RB:
+#endif
 	case T_CHAR:
-	    c = *lp++;
-	    prev = do_str(c, &lp, mp);
+	    c = *re_exp++;
+	    prev = do_str(c, &re_exp, mp);
 	    break;
 
 	case T_CLASS:
-	    prev = do_class(&lp, mp);
+	    prev = do_class(&re_exp, mp);
 	    break;
 
 	case T_START:
 	    *mp = RE_start();
-	    lp++;
+	    re_exp++;
 	    prev = T_START;
 	    break;
 
 	case T_END:
-	    lp++;
+	    re_exp++;
 	    *mp = RE_end();
 	    return prev = T_END;
 
 	default:
-	    RE_panic("bad switch in RE_lex");
-	}
+	    RE_panic("bad switch in RE_lex: %d", c);
+	}			/* T_CAT switch */
 	break;
+
+#ifndef NO_INTERVAL_EXPR
+    case T_LB:
+	/* get interval expression numbers until closing T_RB */
+	prev = do_intervals(&re_exp);
+	return prev = T_RB;
+
+    case T_RB:
+	/* FALLTHRU */
+#endif
 
     default:
 	/* don't advance the pointer */
@@ -236,9 +385,9 @@ RE_lex(MACHINE * mp)
     }
 
     /* check for end character */
-    if (*lp == '$') {
+    if (*re_exp == '$') {
 	mp->start->s_type = (SType) (mp->start->s_type + END_ON);
-	lp++;
+	re_exp++;
     }
 
     return prev;
@@ -257,7 +406,7 @@ do_str(
 	  MACHINE * mp)		/* where to put the string machine */
 {
     register char *p;		/* runs thru the input */
-    char *pt = 0;		/* trails p by one */
+    char *pt = NULL;		/* trails p by one */
     char *str;			/* collect it here */
     register char *s;		/* runs thru the output */
     size_t len;			/* length collected */
@@ -270,7 +419,14 @@ do_str(
     while ((1 + p - re_str) < (int) re_len) {
 	char *save;
 
-	switch (char2token[(UChar) (*p)]) {
+	c = char2token[(UChar) (*p)];
+#ifndef NO_INTERVAL_EXPR
+	if (!repetitions_flag && (c == T_LB || c == T_RB)) {
+	    c = T_CHAR;
+	}
+#endif
+
+	switch (c) {
 	case T_CHAR:
 	    pt = p;
 	    *s++ = *p++;
@@ -291,7 +447,11 @@ do_str(
 
   out:
     /* if len > 1 and we stopped on a ? + or * , need to back up */
-    if (len > 1 && (*p == '*' || *p == '+' || *p == '?')) {
+    if (len > 1 && (*p == '*' || *p == '+' || *p == '?'
+#ifndef NO_INTERVAL_EXPR
+		    || (repetitions_flag == 1 && *p == L_CURL)
+#endif
+	)) {
 	len--;
 	p = pt;
 	s--;
@@ -357,7 +517,7 @@ lookup_cclass(char **start)
     static CCLASS *cclass_data[CCLASS_xdigit];
     static const struct {
 	CCLASS_ENUM code;
-	const char *name;
+	const char name[8];
 	unsigned size;
     } cclass_table[] = {
 	CCLASS_DATA(alnum),
@@ -373,7 +533,7 @@ lookup_cclass(char **start)
 	    CCLASS_DATA(upper),
 	    CCLASS_DATA(xdigit),
     };
-    CCLASS *result = 0;
+    CCLASS *result = NULL;
     CCLASS_ENUM code = CCLASS_NONE;
     const char *name;
     char *colon;
@@ -381,26 +541,26 @@ lookup_cclass(char **start)
     size_t item;
 
 #ifdef NO_LEAKS
-    if (start == 0) {
+    if (start == NULL) {
 	for (item = 0; item < (sizeof(cclass_data) /
 			       sizeof(cclass_data[0])); ++item) {
 	    if (cclass_data[item]) {
 		free(cclass_data[item]);
-		cclass_data[item] = 0;
+		cclass_data[item] = NULL;
 	    }
 	}
-	return 0;
+	return NULL;
     }
 #endif
     name = (*start += 2);	/* point past "[:" */
     colon = strchr(name, ':');
-    if (colon == 0 || colon[1] != ']') {
-	RE_error_trap(-E3);
+    if (colon == NULL || colon[1] != ']') {
+	RE_error_trap(-ERR_3);
     }
 
     size = (size_t) (colon - *start);	/* length of name */
     if (size < 5 || size > 6) {
-	RE_error_trap(-E3);
+	RE_error_trap(-ERR_3);
     }
 
     *start = colon + 2;
@@ -450,10 +610,10 @@ lookup_cclass(char **start)
 	!strncmp(name, cclass_table[item].name, size)) {
 	code = cclass_table[item].code;
     } else {
-	RE_error_trap(-E3);
+	RE_error_trap(-ERR_3);
     }
 
-    if ((result = cclass_data[item]) == 0) {
+    if ((result = cclass_data[item]) == NULL) {
 	int ch = 0;
 	size_t have = 4;
 	size_t used = 0;
@@ -461,6 +621,9 @@ lookup_cclass(char **start)
 	int in_class = 0;
 	int first = -2;
 	int last = -2;
+
+	if (data == NULL)
+	    RE_error_trap(-ERR_3);
 
 	for (ch = 0; ch < 256; ++ch) {
 	    switch (code) {
@@ -514,6 +677,8 @@ lookup_cclass(char **start)
 		if (used + 2 >= have) {
 		    have *= 2;
 		    data = realloc(data, sizeof(CCLASS) * have);
+		    if (data == NULL)
+			RE_error_trap(-ERR_3);
 		}
 		data[used].first = first;
 		data[used].last = last;
@@ -525,6 +690,8 @@ lookup_cclass(char **start)
 	    if (used + 2 >= have) {
 		have *= 2;
 		data = realloc(data, sizeof(CCLASS) * have);
+		if (data == NULL)
+		    RE_error_trap(-ERR_3);
 	    }
 	    data[used].first = first;
 	    data[used].last = last;
@@ -540,12 +707,12 @@ lookup_cclass(char **start)
 static CCLASS *
 get_cclass(char *start, char **next)
 {
-    CCLASS *result = 0;
+    CCLASS *result = NULL;
 
     if (start[0] == '['
 	&& start[1] == ':') {
 	result = lookup_cclass(&start);
-	if (next != 0) {
+	if (next != NULL) {
 	    *next = start;
 	}
     }
@@ -563,7 +730,7 @@ literal_leftsq(char *start)
 {
     int result = 0;
     if (start[0] == '[') {
-	if (get_cclass(start, 0) == 0)
+	if (get_cclass(start, NULL) == NULL)
 	    result = 1;
     }
     return result;
@@ -600,19 +767,19 @@ do_class(char **start, MACHINE * mp)
     for (level = 0, q = p;; ++q) {
 	if (*q == '[' && q[1] == ':') {
 	    if (++level > 1)
-		RE_error_trap(-E3);
+		RE_error_trap(-ERR_3);
 	} else if (*q == ']') {
 	    if (level == 0)
 		break;
 	    if (q[-1] != ':')
-		RE_error_trap(-E3);
+		RE_error_trap(-ERR_3);
 	    --level;
 	} else if (*q == '\\') {
 	    ++q;
 	}
 	if (*q == '\0' && q == (re_str + re_len - 1)) {
 	    /* no closing bracket */
-	    RE_error_trap(-E3);
+	    RE_error_trap(-ERR_3);
 	}
     }
 
@@ -641,7 +808,7 @@ do_class(char **start, MACHINE * mp)
 	    break;
 
 	case '[':
-	    if ((cclass = get_cclass(p, &p)) != 0) {
+	    if ((cclass = get_cclass(p, &p)) != NULL) {
 		while (cclass->first >= 0) {
 		    block_on(*bvp, cclass->first, cclass->last);
 		    ++cclass;
@@ -751,7 +918,7 @@ store_bvp(BV * bvp)
 #define isoctal(x)  ((x)>='0'&&(x)<='7')
 
 #define	 NOT_HEX	16
-static char hex_val['f' - 'A' + 1] =
+static const char hex_val['f' - 'A' + 1] =
 {
     10, 11, 12, 13, 14, 15, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
