@@ -1,6 +1,6 @@
 /********************************************
 code.c
-copyright 2009-2016,2019, Thomas E. Dickey
+copyright 2009-2023,2024, Thomas E. Dickey
 copyright 1991-1994,1995, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,18 +11,22 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: code.c,v 1.39 2019/02/02 01:09:45 tom Exp $
+ * $MawkId: code.c,v 1.50 2024/12/14 21:21:20 tom Exp $
  */
 
-#include "mawk.h"
-#include "code.h"
-#include "init.h"
-#include "jmp.h"
-#include "field.h"
+#define Visible_CELL
+#define Visible_CODEBLOCK
+#define Visible_FBLOCK
+#define Visible_STRING
+
+#include <mawk.h>
+#include <code.h>
+#include <init.h>
+#include <jmp.h>
+#include <field.h>
 
 #ifdef NO_LEAKS
-#include "repl.h"
-#include "scan.h"
+#include <scan.h>
 #endif
 
 static CODEBLOCK *new_code(void);
@@ -34,15 +38,15 @@ CODEBLOCK *main_code_p, *begin_code_p, *end_code_p;
 INST *begin_start, *main_start, *end_start;
 size_t begin_size, main_size, end_size;
 
-INST *execution_start = 0;
+INST *execution_start = NULL;
 
 /* grow the active code */
 void
 code_grow(void)
 {
-    unsigned oldsize = (unsigned) (code_limit - code_base);
-    unsigned newsize = PAGESZ + oldsize;
-    unsigned delta = (unsigned) (code_ptr - code_base);
+    size_t oldsize = (size_t) (code_limit - code_base);
+    size_t newsize = PAGESZ + oldsize;
+    size_t delta = (size_t) (code_ptr - code_base);
 
     if (code_ptr > code_limit)
 	bozo("CODEWARN is too small");
@@ -69,9 +73,9 @@ code_shrink(CODEBLOCK * p, size_t *sizep)
     retval = (INST *) zrealloc(p->base, oldsize, newsize);
     TRACE(("code_shrink old %p %lu, new %p %lu\n",
 	   (void *) p->base,
-	   oldsize,
+	   (unsigned long) oldsize,
 	   (void *) retval,
-	   newsize));
+	   (unsigned long) newsize));
     ZFREE(p);
     return retval;
 }
@@ -89,6 +93,22 @@ xcode2(int op, PTR ptr)
 
     p[-2].op = op;
     p[-1].ptr = ptr;
+    code_ptr = p;
+}
+
+/* code an op and a function-pointer in the active_code */
+void
+xfunc2(int op, PF_CP fnc)
+{
+    register INST *p = code_ptr + 2;
+
+    if (p >= code_warn) {
+	code_grow();
+	p = code_ptr + 2;
+    }
+
+    p[-2].op = op;
+    p[-1].fnc = fnc;
     code_ptr = p;
 }
 
@@ -137,7 +157,7 @@ set_code(void)
 	execution_start = main_start;
     } else {			/* only BEGIN */
 	zfree(code_base, INST_BYTES(PAGESZ));
-	code_base = 0;
+	code_base = NULL;
 	ZFREE(main_code_p);
     }
 
@@ -210,12 +230,20 @@ be_setup(int scope)
     *main_code_p = active_code;
 
     if (scope == SCOPE_BEGIN) {
-	if (!begin_code_p)
+	if (!begin_code_p) {
+	    TRACE(("be_setup: BEGIN\n"));
 	    begin_code_p = new_code();
+	} else {
+	    TRACE(("be_setup: BEGIN (again)\n"));
+	}
 	active_code = *begin_code_p;
     } else {
-	if (!end_code_p)
+	if (!end_code_p) {
+	    TRACE(("be_setup: END\n"));
 	    end_code_p = new_code();
+	} else {
+	    TRACE(("be_setup: END (again)\n"));
+	}
 	active_code = *end_code_p;
     }
 }
@@ -259,17 +287,23 @@ free_codes(const char *tag, INST * base, size_t size)
 
     (void) tag;
 
-    TRACE(("free_codes(%s) base %p, size %lu\n", tag, (void *) base, size));
-    if (base != 0 && size != 0) {
+    TRACE(("free_codes(%s) base %p, size %lu\n",
+	   tag,
+	   (void *) base,
+	   (unsigned long) size));
+
+    if (base != NULL && size != 0) {
 	for (cdp = base; cdp < last; ++cdp) {
+#ifndef NO_LEAKS
 	    TRACE_INST(cdp, base);
+#endif
 
 	    switch ((MAWK_OPCODES) (cdp->op)) {
 	    case AE_PUSHA:
 	    case AE_PUSHI:
 		++cdp;		/* skip pointer */
 		cp = (CELL *) (cdp->ptr);
-		if (cp != 0) {
+		if (cp != NULL) {
 		    free_cell_data(cp);
 		}
 		break;
@@ -286,6 +320,7 @@ free_codes(const char *tag, INST * base, size_t size)
 	    case A_PUSHA:
 	    case L_PUSHA:
 	    case L_PUSHI:
+	    case _LENGTH:
 	    case _BUILTIN:
 	    case _PRINT:
 	    case _PUSHA:
@@ -309,6 +344,7 @@ free_codes(const char *tag, INST * base, size_t size)
 	    case _RANGE:
 		cdp += 4;	/* PAT1 */
 		break;
+	    case _CALLX:
 	    case _CALL:
 		cdp += 1 + cdp[2].op;
 		break;
@@ -396,19 +432,19 @@ void
 code_leaks(void)
 {
     TRACE(("code_leaks\n"));
-    if (begin_start != 0) {
+    if (begin_start != NULL) {
 	free_codes("BEGIN", begin_start, begin_size);
-	begin_start = 0;
+	begin_start = NULL;
 	begin_size = 0;
     }
-    if (end_start != 0) {
+    if (end_start != NULL) {
 	free_codes("END", end_start, end_size);
-	end_start = 0;
+	end_start = NULL;
 	end_size = 0;
     }
-    if (main_start != 0) {
+    if (main_start != NULL) {
 	free_codes("MAIN", main_start, main_size);
-	main_start = 0;
+	main_start = NULL;
 	main_size = 0;
     }
 }

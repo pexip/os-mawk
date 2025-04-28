@@ -1,6 +1,6 @@
 /********************************************
 files.h
-copyright 2009-2012,2016, Thomas E. Dickey
+copyright 2009-2020,2024, Thomas E. Dickey
 copyright 1991-1994,1996, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,14 +11,14 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: files.h,v 1.13 2016/09/18 18:40:04 tom Exp $
+ * $MawkId: files.h,v 1.16 2024/08/25 17:17:31 tom Exp $
  */
 
 #ifndef   MAWK_FILES_H
 #define   MAWK_FILES_H
 
-#include "nstd.h"
-#include "types.h"
+#include <nstd.h>
+#include <types.h>
 
 /* IO redirection types */
 #define  F_IN           (-5)
@@ -52,7 +52,7 @@ extern void enlarge_output_buffer(FILE *);
 
 #if USE_BINMODE
 extern int binmode(void);
-extern void set_binmode(int);
+extern void set_binmode(long);
 extern void stdout_init(void);
 #endif
 

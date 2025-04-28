@@ -1,6 +1,6 @@
 /********************************************
 mawk.h
-copyright 2008-2019,2020 Thomas E. Dickey
+copyright 2008-2024,2025 Thomas E. Dickey
 copyright 1991-1995,1996 Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,7 +11,7 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: mawk.h,v 1.55 2020/01/20 14:15:55 tom Exp $
+ * $MawkId: mawk.h,v 1.78 2025/01/30 09:02:31 tom Exp $
  */
 
 /*  mawk.h  */
@@ -19,7 +19,7 @@ the GNU General Public License, version 2, 1991.
 #ifndef  MAWK_H
 #define  MAWK_H
 
-#include "nstd.h"
+#include <nstd.h>
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -30,7 +30,15 @@ the GNU General Public License, version 2, 1991.
 
 #include <assert.h>
 
-#include "types.h"
+#ifdef HAVE_STDNORETURN_H
+#include <stdnoreturn.h>
+#undef GCC_NORETURN
+#define GCC_NORETURN STDC_NORETURN
+#endif
+
+#include <repl.h>
+#include <types.h>
+#include <makebits.h>
 
 #ifndef GCC_NORETURN
 #define GCC_NORETURN		/* nothing */
@@ -63,7 +71,13 @@ extern int dump_RE;
 #define USE_BINMODE 0
 #endif
 
-extern short posix_space_flag, interactive_flag;
+extern short interactive_flag;
+extern short posix_space_flag;
+extern short traditional_flag;
+
+#ifndef NO_INTERVAL_EXPR
+extern short repetitions_flag;
+#endif
 
 /*----------------
  *  GLOBAL VARIABLES
@@ -99,6 +113,8 @@ extern char decimal_dot;
 extern const char *progname;	/* for error messages */
 extern unsigned rt_nr, rt_fnr;	/* ditto */
 
+#define TABLESIZE(name) (sizeof(name)/sizeof(name[0]))
+
 /* macro to test the type of two adjacent cells */
 #define TEST2(cp)  (mpow2[(cp)->type]+mpow2[((cp)+1)->type])
 
@@ -112,8 +128,13 @@ extern unsigned rt_nr, rt_fnr;	/* ditto */
 #define cell_destroy(cp) \
 	do { \
 	    if ( (cp)->type >= C_STRING && \
-	         (cp)->type <= C_MBSTRN ) { \
+	         (cp)->type <= C_MBSTRN && \
+		 string(cp) != NULL) { \
+	        unsigned final = string(cp)->ref_cnt; \
 		free_STRING(string(cp));  \
+		if (final <= 1) { \
+		    (cp)->ptr = NULL; \
+		} \
 	    } \
 	} while (0)
 #endif
@@ -129,22 +150,30 @@ extern void cast_for_split(CELL *);
 extern void check_strnum(CELL *);
 extern void cast_to_REPL(CELL *);
 extern Int d_to_I(double);
-extern UInt d_to_U(double d);
+extern Long d_to_L(double);
+extern ULong d_to_UL(double d);
+
+#define NonNull(s)    ((s) == NULL ? "<null>" : (s))
 
 #define d_to_i(d)     ((int)d_to_I(d))
+#define d_to_l(d)     ((long)d_to_L(d))
+
+#define IsMaxBound(n) ((n) == UNSIGNED_LIMITS || (n) == INTEGERS_LIMITS)
+#define PastBound(n)  ((n) > UNSIGNED_LIMITS)
 
 extern int test(CELL *);	/* test for null non-null */
 extern CELL *cellcpy(CELL *, CELL *);
 extern CELL *repl_cpy(CELL *, CELL *);
 extern void DB_cell_destroy(CELL *);
-extern void overflow(const char *, unsigned);
-extern void rt_overflow(const char *, unsigned);
-extern void rt_error(const char *,...) GCC_NORETURN GCC_PRINTFLIKE(1,2);
-extern void mawk_exit(int) GCC_NORETURN;
+extern GCC_NORETURN void overflow(const char *, unsigned);
+extern GCC_NORETURN void rt_overflow(const char *, unsigned);
+extern GCC_NORETURN void rt_error(const char *,...) GCC_PRINTFLIKE(1,2);
+extern GCC_NORETURN void mawk_exit(int);
 extern void da(INST *, FILE *);
-extern INST *da_this(INST *, INST *, FILE *);
+extern INST *da_this(INST *, const INST *, FILE *);
 extern char *rm_escape(char *, size_t *);
-extern char *re_pos_match(char *, size_t, PTR, size_t *, int);
+extern char *re_pos_match(char *, size_t, RE_NODE *, size_t *, int);
+extern char *safe_string(char *);
 extern int binmode(void);
 
 #ifndef  REXP_H
@@ -154,26 +183,32 @@ extern char *str_str(char *, size_t, const char *, size_t);
 extern void parse(void);
 extern void scan_cleanup(void);
 
-#ifndef YYBYACC 
+#ifndef YYBYACC
 extern int yylex(void);
 #endif
 extern void yyerror(const char *);
 
-extern void bozo(const char *) GCC_NORETURN;
-extern void errmsg(int, const char *,...) GCC_PRINTFLIKE(2,3);
-extern void compile_error(const char *,...) GCC_PRINTFLIKE(1,2);
+extern GCC_NORETURN void bozo(const char *);
+extern void errmsg(int, const char *, ...) GCC_PRINTFLIKE(2,3);
+extern void compile_error(const char *, ...) GCC_PRINTFLIKE(1,2);
 
 extern void execute(INST *, CELL *, CELL *);
 extern const char *find_kw_str(int);
-extern void da_string(FILE *fp, const char *, size_t);
+extern void da_string(FILE *fp, const STRING *, int);
+extern void da_string2(FILE *fp, const char *, size_t, int);
 
 #ifdef HAVE_STRTOD_OVF_BUG
 extern double strtod_with_ovf_bug(const char *, char **);
 #define strtod  strtod_with_ovf_bug
 #endif
 
+#ifndef OPT_CALLX
+#define OPT_CALLX 0
+#endif
+
 #if OPT_TRACE > 0
-extern void Trace(const char *,...) GCC_PRINTFLIKE(1,2);
+extern FILE *trace_fp;
+extern void Trace(const char *, ...) GCC_PRINTFLIKE(1,2);
 extern void TraceVA(const char *, va_list);
 #define TRACE(params) Trace params
 #if OPT_TRACE > 1
@@ -203,9 +238,11 @@ extern void TraceString2(const char *, size_t);
 #endif
 
 #if OPT_TRACE > 0
-extern void TraceFunc(const char *, CELL *);
-#define TRACE_FUNC(name,cp) TraceFunc(name,cp)
+extern void TraceFunc(const char *, CELL *, int);
+#define TRACE_FUNC2(name,cp,na) TraceFunc(name,cp,na)
+#define TRACE_FUNC(name,cp) TraceFunc(name,cp,cp->type)
 #else
+#define TRACE_FUNC2(name,cp,na)	/* nothing */
 #define TRACE_FUNC(name,cp)	/* nothing */
 #endif
 
@@ -216,10 +253,8 @@ extern void TraceInst(INST *, INST *);
 #define TRACE_INST(cp,base)	/* nothing */
 #endif
 
-#if OPT_TRACE > 0
-extern const char *da_type_name(CELL *);
-extern const char *da_op_name(INST *);
-#endif
+extern const char *da_type_name(const CELL *);
+extern const char *da_op_name(const INST *);
 
 #ifdef NO_LEAKS
 
@@ -257,7 +292,7 @@ extern void zmalloc_leaks(void);
  * Optimize-out the assignment to clear the pointer in the array.
  */
 #ifdef NO_LEAKS
-#define USED_SPLIT_BUFF(n) split_buff[n] = 0
+#define USED_SPLIT_BUFF(n) split_buff[n] = NULL
 #else
 #define USED_SPLIT_BUFF(n)	/* nothing */
 #endif

@@ -1,6 +1,6 @@
 /********************************************
 init.c
-copyright 2008-2016,2017, Thomas E. Dickey
+copyright 2008-2023,2024, Thomas E. Dickey
 copyright 1991-1994,1995, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,10 +11,16 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: init.c,v 1.45 2017/10/17 01:19:15 tom Exp $
+ * $MawkId: init.c,v 1.85 2024/12/14 21:21:20 tom Exp $
  */
 
-/* init.c */
+#define Visible_ARRAY
+#define Visible_BI_REC
+#define Visible_CELL
+#define Visible_PFILE
+#define Visible_STRING
+#define Visible_SYMTAB
+
 #include <mawk.h>
 #include <code.h>
 #include <memory.h>
@@ -29,28 +35,26 @@ the GNU General Public License, version 2, 1991.
 
 typedef enum {
     W_UNKNOWN = 0,
+    W_VERSION,
 #if USE_BINMODE
     W_BINMODE,
 #endif
-    W_VERSION,
     W_DUMP,
+    W_EXEC,
     W_HELP,
     W_INTERACTIVE,
-    W_EXEC,
+    W_POSIX,
     W_RANDOM,
+    W_RE_INTERVAL,
     W_SPRINTF,
-    W_POSIX_SPACE,
-    W_USAGE
+    W_TRADITIONAL,
+    W_USAGE,
+    W__IGNORE
 } W_OPTIONS;
-
-static void process_cmdline(int, char **);
-static void set_ARGV(int, char **, int);
-static void bad_option(char *);
-static void no_program(void);
 
 #ifdef  MSDOS
 #if  HAVE_REARGV
-void reargv(int *, char ***);
+extern void reargv(int *, char ***);
 #endif
 #endif
 
@@ -63,67 +67,57 @@ short interactive_flag = 0;
     progname = p ? p+1 : argv[0] ; }
 #endif
 
-void
-initialize(int argc, char **argv)
-{
+int dump_code_flag = 0;		/* if on dump internal code */
+short posix_space_flag = 0;
+short traditional_flag = 0;
 
-    SET_PROGNAME();
-
-    bi_vars_init();		/* load the builtin variables */
-    bi_funct_init();		/* load the builtin functions */
-    kw_init();			/* load the keywords */
-    field_init();
-
-#if USE_BINMODE
-    {
-	char *p = getenv("MAWKBINMODE");
-
-	if (p)
-	    set_binmode(atoi(p));
-    }
+#ifndef NO_INTERVAL_EXPR
+#define enable_repetitions(flag) repetitions_flag = flag
+short repetitions_flag = 1;
+#else
+#define enable_repetitions(flag)	/* nothing */
 #endif
-
-    process_cmdline(argc, argv);
-
-    code_init();
-    fpe_init();
-    set_stdio();
-
-#if USE_BINMODE
-    stdout_init();
-#endif
-}
-
-int dump_code_flag;		/* if on dump internal code */
-short posix_space_flag;
 
 #ifdef	 DEBUG
 int dump_RE = 1;		/* if on dump compiled REs  */
 #endif
+/* *INDENT-OFF* */
+static const struct {
+    W_OPTIONS code;
+    int mode;			/* 0=mawk, 1=both, 2=gawk */
+    int args;			/* nonzero if argument */
+    const char name[20];
+} w_options[] = {
+    { W_VERSION,     1, 0, "version" },
+#if USE_BINMODE
+    { W_BINMODE,     0, 0, "binmode" },
+#endif
+    { W_DUMP,        0, 0, "dump" },
+    { W_EXEC,        1, 1, "exec" },
+    { W_HELP,        1, 0, "help" },
+    { W_INTERACTIVE, 0, 0, "interactive" },
+    { W_POSIX,       1, 0, "posix" },
+    { W_RANDOM,      0, 1, "random" },
+    { W_RE_INTERVAL, 2, 0, "re-interval" },
+    { W_SPRINTF,     0, 1, "sprintf" },
+    { W_TRADITIONAL, 1, 0, "traditional" },
+    { W_USAGE,       0, 0, "usage" },
+    { W__IGNORE,     2, 0, "lint" },
+    { W__IGNORE,     2, 0, "lint-old" },
+    { W__IGNORE,     2, 0, "non-decimal-data" },
+};
+/* *INDENT-ON* */
 
-static void
-bad_option(char *s)
-{
-    errmsg(0, "not an option: %s", s);
-    if (strcmp(s, "--lint") &&
-	strcmp(s, "--lint-old") &&
-	strcmp(s, "--posix") &&
-	strcmp(s, "--re-interval") &&
-	strcmp(s, "--traditional")) {
-	mawk_exit(2);
-    }
-}
-
-static void
+static GCC_NORETURN void
 no_program(void)
 {
     mawk_exit(0);
 }
 
-static void
-usage(void)
+static GCC_NORETURN void
+usage(FILE *fp)
 {
-    static const char *msg[] =
+    static const char msg[][80] =
     {
 	"Usage: mawk [Options] [Program] [file ...]",
 	"",
@@ -150,14 +144,15 @@ usage(void)
 	"    -W help          show this message and exit.",
 	"    -W interactive   set unbuffered output, line-buffered input.",
 	"    -W exec file     use file as program as well as last option.",
+	"    -W posix         stricter POSIX checking.",
 	"    -W random=number set initial random seed.",
 	"    -W sprintf=number adjust size of sprintf buffer.",
-	"    -W posix_space   do not consider \"\\n\" a space.",
+	"    -W traditional   pre-POSIX 2001.",
 	"    -W usage         show this message and exit.",
     };
     size_t n;
-    for (n = 0; n < sizeof(msg) / sizeof(msg[0]); ++n) {
-	fprintf(stderr, "%s\n", msg[n]);
+    for (n = 0; n < TABLESIZE(msg); ++n) {
+	fprintf(fp, "%s\n", msg[n]);
     }
     mawk_exit(0);
 }
@@ -175,7 +170,7 @@ ok_abbrev(const char *fullName, const char *partName, int partLen)
 	UChar ch = (UChar) partName[n];
 	if (isalpha(ch))
 	    ch = (UChar) toupper(ch);
-	if (ch != (UChar) fullName[n]) {
+	if (ch != (UChar) toupper((UChar) fullName[n])) {
 	    result = 0;
 	    break;
 	}
@@ -198,70 +193,20 @@ haveValue(char *value)
     int result = 0;
 
     if (*value++ == '=') {
-	if (*value != '\0' && strchr("=,", *value) == 0)
+	if (*value != '\0' && strchr("=,", *value) == NULL)
 	    result = 1;
     }
     return result;
 }
 
-static int
-allow_long_options(char *arg)
-{
-    static int result = -1;
-
-    if (result < 0) {
-
-	char *env = getenv("MAWK_LONG_OPTIONS");
-	result = 0;
-	if (env != 0) {
-	    switch (*env) {
-	    default:
-	    case 'e':		/* error */
-		bad_option(arg);
-		break;
-	    case 'w':		/* warn */
-		errmsg(0, "ignored option: %s", arg);
-		break;
-	    case 'i':		/* ignore */
-		break;
-	    case 'a':		/* allow */
-		result = 1;
-		break;
-	    }
-	} else {
-	    bad_option(arg);
-	}
-    }
-    return result;
-}
-
 static W_OPTIONS
-parse_w_opt(char *source, char **next)
+parse_w_opt(char *source, char **next, int *args)
 {
-#define DATA(name) { W_##name, #name }
-#define DATA2(name) { W_##name, name }
-    static const struct {
-	W_OPTIONS code;
-	const char *name;
-    } w_options[] = {
-	DATA(VERSION),
-#if USE_BINMODE
-	    DATA(BINMODE),
-#endif
-	    DATA(DUMP),
-	    DATA(HELP),
-	    DATA(INTERACTIVE),
-	    DATA(EXEC),
-	    DATA(RANDOM),
-	    DATA(SPRINTF),
-	    DATA(POSIX_SPACE),
-	    DATA(USAGE)
-    };
-#undef DATA
     W_OPTIONS result = W_UNKNOWN;
-    int n;
     int match = -1;
     const char *first;
+
+    *args = 0;
 
     /* forgive and ignore empty options */
     while (*source == ',') {
@@ -270,13 +215,24 @@ parse_w_opt(char *source, char **next)
 
     first = source;
     if (*source != '\0') {
+	int n;
+	char mark;
 	while (*source != '\0' && *source != ',' && *source != '=') {
 	    ++source;
 	}
-	for (n = 0; n < (int) (sizeof(w_options) / sizeof(w_options[0])); ++n) {
+	mark = *source;
+	*source = '\0';
+	for (n = 0; n < (int) TABLESIZE(w_options); ++n) {
+	    if (w_options[n].mode > 1)
+		continue;
+	    if (!strcmp(w_options[n].name, first)) {
+		match = n;
+		break;
+	    }
 	    if (ok_abbrev(w_options[n].name, first, (int) (source - first))) {
 		if (match >= 0) {
-		    errmsg(0, "? ambiguous -W value: %s vs %s\n",
+		    errmsg(0, "ambiguous -W value: \"%.*s\" (%s vs %s)",
+			   (int) (source - first), first,
 			   w_options[match].name,
 			   w_options[n].name);
 		} else {
@@ -284,229 +240,272 @@ parse_w_opt(char *source, char **next)
 		}
 	    }
 	}
+	if (match < 0 && ok_abbrev("POSIX_SPACE", first, (int) (source - first))) {
+	    errmsg(0, "deprecated option, use -W posix");
+	    for (n = 0; n < (int) TABLESIZE(w_options); ++n) {
+		if (w_options[n].code == W_POSIX) {
+		    match = n;
+		    break;
+		}
+	    }
+	}
+	*source = mark;
     }
     *next = source;
 
-    if (match >= 0)
+    if (match >= 0) {
 	result = w_options[match].code;
+	*args = w_options[match].args;
+    }
 
     return result;
 }
 
-static void
-process_cmdline(int argc, char **argv)
+static W_OPTIONS
+parse_long_opt(char *source, char **next, int *args)
 {
-    int i, j, nextarg;
-    char *optArg;
-    char *optNext;
-    PFILE dummy;		/* starts linked list of filenames */
-    PFILE *tail = &dummy;
-    size_t length;
+    int n;
+    int match = -1;
+    W_OPTIONS result = W_UNKNOWN;
+    const char *first = source;
+    char mark;
 
-    if (argc <= 1)
-	usage();
+    *args = 0;
 
-    for (i = 1; i < argc && argv[i][0] == '-'; i = nextarg) {
-	if (argv[i][1] == 0)	/* -  alone */
-	{
-	    if (!pfile_name)
-		no_program();
-	    break;		/* the for loop */
+    while (*source != '\0' && *source != '=') {
+	++source;
+    }
+    mark = *source;
+    *source = '\0';
+    for (n = 0; n < (int) TABLESIZE(w_options); ++n) {
+	if (!strcmp(w_options[n].name, first)) {
+	    match = n;
+	    break;
 	}
-	/* safe to look at argv[i][2] */
-
-	/*
-	 * Check for "long" options and decide how to handle them.
-	 */
-	if (strlen(argv[i]) > 2 && !strncmp(argv[i], "--", (size_t) 2)) {
-	    if (!allow_long_options(argv[i])) {
-		nextarg = i + 1;
-		continue;
+	if (ok_abbrev(w_options[n].name, first, (int) (source - first))) {
+	    if (match >= 0) {
+		errmsg(0, "ambiguous long option: \"--%.*s\" (--%s vs --%s)",
+		       (int) (source - first), first,
+		       w_options[match].name,
+		       w_options[n].name);
+	    } else {
+		match = n;
 	    }
 	}
+    }
+    if (match >= 0) {
+	result = w_options[match].code;
+	*args = w_options[match].args;
+    }
+    *source = mark;
+    *next = source;
+    return result;
+}
 
-	if (argv[i][2] == 0) {
-	    if (i == argc - 1 && argv[i][1] != '-') {
-		if (strchr("WFvf", argv[i][1])) {
-		    errmsg(0, "option %s lacks argument", argv[i]);
-		    mawk_exit(2);
-		}
-		bad_option(argv[i]);
-	    }
+static long
+numeric_option(const char *source)
+{
+    char *next = NULL;
+    long result = strtol(source, &next, 0);
+    if (next == source || next == NULL || (*next != '\0' && *next != ',')) {
+	errmsg(0, "invalid numeric option: \"%s\"", source);
+	mawk_exit(2);
+    }
+    return result;
+}
 
-	    optArg = argv[i + 1];
-	    nextarg = i + 2;
-	} else {		/* argument glued to option */
-	    optArg = &argv[i][2];
-	    nextarg = i + 1;
-	}
+/*
+ * mawk allows the -W option to have multiple parts, separated by commas.  It
+ * does that, to allow multiple -W options in a "sharpbang" line.
+ *
+ * Regarding "sharpbang:
+ * While that is also referred to as a "shebang" or "hashbang" line, those
+ * terms appear to have taken hold after Larry Wall referred to it as
+ * "sharpbang" for changes to rn in 1985.  mawk's manual page refers to "magic
+ * number", which is still older, but "sharpbang" is more descriptive.  Both
+ * "sharpbang" and "magic number" were used in 4.3BSD, which of course predates
+ * mawk.
+ *
+ * Within each comma-separated chunk, we can have an option value.
+ * For instance:
+ *	-Wname1
+ *	-Wname1=value1
+ *	-Wname1=value1,name2
+ *	-Wname1=value1,name2=value2
+ *
+ * The corresponding long-options are blank-separated, but the "=" mark can
+ * be used:
+ *	--name1
+ *	--name1 value1
+ *	--name1=value1
+ *	--name1=value1 --name2
+ *	--name1=value1 --name2=value2
+ *	--name1=value1 --name2 value2
+ *
+ * The caller has to allow for these cases, by checking the updated "value"
+ * after each call.
+ */
+static int
+handle_w_opt(W_OPTIONS code, int glue, char *option, char **value)
+{
+    char *optNext = *value;
+    int result = 1;
+    int wantArg = 0;
 
-	switch (argv[i][1]) {
+    switch (code) {
+    case W_VERSION:
+	print_version(stdout);
+	/* NOTREACHED */
 
-	case 'W':
-	    for (j = 0; j < (int) strlen(optArg); j = (int) (optNext - optArg)) {
-		switch (parse_w_opt(optArg + j, &optNext)) {
-		case W_VERSION:
-		    print_version();
-		    break;
 #if USE_BINMODE
-		case W_BINMODE:
-		    if (haveValue(optNext)) {
-			set_binmode(atoi(optNext + 1));
-			optNext = skipValue(optNext);
-		    } else {
-			errmsg(0, "missing value for -W binmode");
-			mawk_exit(2);
-		    }
-		    break;
-#endif
-		case W_DUMP:
-		    dump_code_flag = 1;
-		    break;
-
-		case W_EXEC:
-		    if (pfile_name) {
-			errmsg(0, "-W exec is incompatible with -f");
-			mawk_exit(2);
-		    } else if (nextarg == argc) {
-			no_program();
-		    }
-		    if (haveValue(optNext)) {
-			pfile_name = optNext + 1;
-			i = nextarg;
-		    } else {
-			pfile_name = argv[nextarg];
-			i = nextarg + 1;
-		    }
-		    goto no_more_opts;
-
-		case W_INTERACTIVE:
-		    interactive_flag = 1;
-		    setbuf(stdout, (char *) 0);
-		    break;
-
-		case W_POSIX_SPACE:
-		    posix_space_flag = 1;
-		    break;
-
-		case W_RANDOM:
-		    if (haveValue(optNext)) {
-			int x = atoi(optNext + 1);
-			CELL c[2];
-
-			memset(c, 0, sizeof(c));
-			c[1].type = C_DOUBLE;
-			c[1].dval = (double) x;
-			/* c[1] is input, c[0] is output */
-			bi_srand(c + 1);
-			optNext = skipValue(optNext);
-		    } else {
-			errmsg(0, "missing value for -W random");
-			mawk_exit(2);
-		    }
-		    break;
-
-		case W_SPRINTF:
-		    if (haveValue(optNext)) {
-			int x = atoi(optNext + 1);
-
-			if (x > (int) sizeof(string_buff)) {
-			    if (sprintf_buff != string_buff &&
-				sprintf_buff != 0) {
-				zfree(sprintf_buff,
-				      (size_t) (sprintf_limit - sprintf_buff));
-			    }
-			    sprintf_buff = (char *) zmalloc((size_t) x);
-			    sprintf_limit = sprintf_buff + x;
-			}
-			optNext = skipValue(optNext);
-		    } else {
-			errmsg(0, "missing value for -W sprintf");
-			mawk_exit(2);
-		    }
-		    break;
-
-		case W_HELP:
-		    /* FALLTHRU */
-		case W_USAGE:
-		    usage();
-		    /* NOTREACHED */
-		    break;
-		case W_UNKNOWN:
-		    errmsg(0, "vacuous option: -W %s", optArg + j);
-		    break;
-		}
-		while (*optNext == '=') {
-		    errmsg(0, "unexpected option value %s", optArg + j);
-		    optNext = skipValue(optNext);
-		}
-	    }
-	    break;
-
-	case 'v':
-	    if (!is_cmdline_assign(optArg)) {
-		errmsg(0, "improper assignment: -v %s", optArg);
-		mawk_exit(2);
-	    }
-	    break;
-
-	case 'F':
-
-	    rm_escape(optArg, &length);		/* recognize escape sequences */
-	    cell_destroy(FS);
-	    FS->type = C_STRING;
-	    FS->ptr = (PTR) new_STRING1(optArg, length);
-	    cast_for_split(cellcpy(&fs_shadow, FS));
-	    break;
-
-	case '-':
-	    if (argv[i][2] != 0) {
-		bad_option(argv[i]);
-	    }
-	    i++;
-	    goto no_more_opts;
-
-	case 'f':
-	    /* first file goes in pfile_name ; any more go
-	       on a list */
-	    if (!pfile_name)
-		pfile_name = optArg;
-	    else {
-		tail = tail->link = ZMALLOC(PFILE);
-		tail->fname = optArg;
-	    }
-	    break;
-
-	default:
-	    bad_option(argv[i]);
+    case W_BINMODE:
+	wantArg = 1;
+	if (optNext != 0) {
+	    set_binmode(numeric_option(optNext));
+	    wantArg = 2;
 	}
-    }
+	break;
+#endif
+    case W_TRADITIONAL:
+	traditional_flag = 1;
+	enable_repetitions(0);
+	posix_space_flag = 0;
+	break;
 
-  no_more_opts:
+    case W_DUMP:
+	dump_code_flag = 1;
+	break;
 
-    tail->link = (PFILE *) 0;
-    pfile_list = dummy.link;
-
-    if (pfile_name) {
-	set_ARGV(argc, argv, i);
-	scan_init((char *) 0);
-    } else {			/* program on command line */
-	if (i == argc)
+    case W_EXEC:
+	if (pfile_name) {
+	    errmsg(0, "-W exec is incompatible with -f");
+	    mawk_exit(2);
+	}
+	wantArg = 1;
+	if (optNext != NULL) {
+	    pfile_name = optNext;
+	    wantArg = 2;
+	} else {
 	    no_program();
-	set_ARGV(argc, argv, i + 1);
-
-#if  defined(MSDOS) && ! HAVE_REARGV	/* reversed quotes */
-	{
-	    char *p;
-
-	    for (p = argv[i]; *p; p++)
-		if (*p == '\'')
-		    *p = '\"';
 	}
+	result = 0;		/* no_more_opts */
+	break;
+
+    case W_INTERACTIVE:
+	interactive_flag = 1;
+	setbuf(stdout, (char *) 0);
+	break;
+
+    case W_POSIX:
+	posix_space_flag = 1;
+	break;
+
+    case W_RANDOM:
+	wantArg = 1;
+	if (optNext != NULL) {
+	    long x = numeric_option(optNext);
+	    CELL c[2];
+
+	    memset(c, 0, sizeof(c));
+	    c[1].type = C_DOUBLE;
+	    c[1].dval = (double) x;
+	    /* c[1] is input, c[0] is output */
+	    bi_srand(c + 1);
+	    wantArg = 2;
+	}
+	break;
+
+#ifndef NO_INTERVAL_EXPR
+    case W_RE_INTERVAL:
+	enable_repetitions(1);
+	break;
 #endif
-	scan_init(argv[i]);
-/* #endif  */
+
+    case W_SPRINTF:
+	wantArg = 1;
+	if (optNext != NULL) {
+	    long x = numeric_option(optNext);
+
+	    if (x > (long) sizeof(string_buff)) {
+		if (sprintf_buff != string_buff &&
+		    sprintf_buff != NULL) {
+		    zfree(sprintf_buff,
+			  (size_t) (sprintf_limit - sprintf_buff));
+		}
+		sprintf_buff = (char *) zmalloc((size_t) x);
+		sprintf_limit = sprintf_buff + x;
+	    }
+	    wantArg = 2;
+	}
+	break;
+
+    case W_HELP:
+	/* FALLTHRU */
+    case W_USAGE:
+	usage(stdout);
+	/* NOTREACHED */
+
+    case W_UNKNOWN:
+	errmsg(0, "vacuous option: -W \"%s\"", option);
+	break;
+    case W__IGNORE:
+	break;
     }
+    if (wantArg) {
+	if (wantArg == 1) {
+	    int length = (int) (skipValue(option) - option);
+	    errmsg(0, "missing value for -W \"%.*s\"", length, option);
+	    mawk_exit(2);
+	}
+	optNext = skipValue(optNext);
+    } else if (glue) {
+	while (glue) {
+	    errmsg(0, "unexpected option value \"%s\"", option);
+	    optNext = skipValue(optNext);
+	    glue = haveValue(optNext);
+	}
+    } else if (*value == NULL) {
+	optNext = skipValue(option);
+	if (*optNext == ',')
+	    ++optNext;
+    }
+    *value = optNext;
+    return result;
+}
+
+static GCC_NORETURN void
+bad_option(const char *s)
+{
+    errmsg(0, "not an option: %s", s);
+    mawk_exit(2);
+}
+
+static int
+allow_long_options(char *arg, W_OPTIONS seen)
+{
+    char *env = getenv("MAWK_LONG_OPTIONS");
+    int result = 0;
+
+    if (env != NULL) {
+	switch (*env) {
+	default:
+	case 'e':		/* error */
+	    bad_option(arg);
+	    /* NOTREACHED */
+	case 'w':		/* warn */
+	    errmsg(0, "ignored option: %s", arg);
+	    break;
+	case 'i':		/* ignore */
+	    result = (seen != W_UNKNOWN);
+	    break;
+	case 'a':		/* allow */
+	    result = 1;
+	    break;
+	}
+    } else {
+	result = (seen != W_UNKNOWN);
+    }
+    return result;
 }
 
    /* argv[i] = ARGV[i] */
@@ -540,6 +539,173 @@ set_ARGV(int argc, char **argv, int i)
     ARGC->dval = argi.dval;
 }
 
+static void
+process_cmdline(int argc, char **argv)
+{
+    int i, j, nextarg;
+    char *curArg = NULL;
+    char *optArg;
+    char *optNext;
+    PFILE dummy;		/* starts linked list of filenames */
+    PFILE *tail = &dummy;
+    size_t length;
+
+    if (argc <= 1)
+	usage(stderr);
+
+    for (i = 1; i < argc && *(curArg = argv[i]) == '-'; i = nextarg) {
+	if (curArg[1] == 0) {
+	    /* "-"  alone */
+	    if (!pfile_name)
+		no_program();
+	    break;		/* the for loop */
+	}
+	/* safe to look at argv[i][2] */
+
+	/*
+	 * Check for "long" options and decide how to handle them.
+	 */
+	if (strlen(curArg) > 2 && !strncmp(curArg, "--", (size_t) 2)) {
+	    char *name = curArg + 2;
+	    int args;
+	    W_OPTIONS code = parse_long_opt(name, &optNext, &args);
+	    nextarg = i + 1;
+	    if (allow_long_options(curArg, code)) {
+		int glue = haveValue(optNext);
+		char *optValue = (glue
+				  ? (optNext + 1)
+				  : (args
+				     ? argv[nextarg++]
+				     : NULL));
+		if (!handle_w_opt(code, glue, name, &optValue)) {
+		    goto no_more_opts;
+		}
+		optNext = optValue;
+	    } else {
+		bad_option(curArg);
+		/* NOTREACHED */
+	    }
+	    continue;
+	}
+
+	if (curArg[2] == 0) {
+	    if (i == argc - 1 && curArg[1] != '-') {
+		if (strchr("WFvf", curArg[1])) {
+		    errmsg(0, "option %s lacks argument", curArg);
+		    mawk_exit(2);
+		}
+		bad_option(curArg);
+		/* NOTREACHED */
+	    }
+
+	    optArg = argv[i + 1];
+	    nextarg = i + 2;
+	} else {		/* argument glued to option */
+	    optArg = &curArg[2];
+	    nextarg = i + 1;
+	}
+
+	switch (curArg[1]) {
+
+	case 'W':
+	    for (j = 0;
+		 j < (int) strlen(optArg);
+		 j = (optNext
+		      ? (int) (optNext - optArg)
+		      : (int) strlen(optArg))) {
+		char *name = optArg + j;
+		int args = 0;
+		W_OPTIONS code = parse_w_opt(name, &optNext, &args);
+		int glue = haveValue(optNext);
+		char *optValue = (glue
+				  ? (optNext + 1)
+				  : ((strchr(optNext, ',') == NULL)
+				     ? (args && argv[nextarg]
+					? argv[nextarg++]
+					: NULL)
+				     : NULL));
+		int done = !handle_w_opt(code, glue, name, &optValue);
+		i = nextarg;
+		if (done)
+		    goto no_more_opts;
+		optNext = optValue;
+	    }
+	    break;
+
+#ifndef NO_INTERVAL_EXPR
+	case 'r':
+	    enable_repetitions(1);
+	    break;
+#endif
+
+	case 'v':
+	    if (!is_cmdline_assign(optArg)) {
+		errmsg(0, "improper assignment: -v %s", optArg);
+		mawk_exit(2);
+	    }
+	    break;
+
+	case 'F':
+
+	    rm_escape(optArg, &length);		/* recognize escape sequences */
+	    cell_destroy(FS);
+	    FS->type = C_STRING;
+	    FS->ptr = (PTR) new_STRING1(optArg, length);
+	    cast_for_split(cellcpy(&fs_shadow, FS));
+	    break;
+
+	case '-':
+	    if (curArg[2] != 0) {
+		bad_option(curArg);
+		/* NOTREACHED */
+	    }
+	    curArg = argv[++i];
+	    goto no_more_opts;
+
+	case 'f':
+	    /* first file goes in pfile_name ; any more go
+	       on a list */
+	    if (!pfile_name)
+		pfile_name = optArg;
+	    else {
+		tail = tail->link = ZMALLOC(PFILE);
+		tail->fname = optArg;
+	    }
+	    break;
+
+	default:
+	    bad_option(curArg);
+	    /* NOTREACHED */
+	}
+    }
+
+  no_more_opts:
+
+    tail->link = (PFILE *) 0;
+    pfile_list = dummy.link;
+
+    if (pfile_name) {
+	set_ARGV(argc, argv, i);
+	scan_init((char *) 0);
+    } else {			/* program on command line */
+	if (i == argc)
+	    no_program();
+	set_ARGV(argc, argv, i + 1);
+
+#if  defined(MSDOS) && ! HAVE_REARGV	/* reversed quotes */
+	{
+	    char *p;
+
+	    for (p = curArg; *p; p++)
+		if (*p == '\'')
+		    *p = '\"';
+	}
+#endif
+	scan_init(curArg);
+/* #endif  */
+    }
+}
+
 /*----- ENVIRON ----------*/
 
 #ifdef DECL_ENVIRON
@@ -555,14 +721,16 @@ load_environ(ARRAY ENV)
 {
     CELL c;
     register char **p = environ;	/* walks environ */
-    char *s;			/* looks for the '=' */
-    CELL *cp;			/* pts at ENV[&c] */
 
     c.type = C_STRING;
 
     while (*p) {
+	char *s;		/* looks for the '=' */
+
 	if ((s = strchr(*p, '='))) {	/* shouldn't fail */
+	    CELL *cp;		/* pts at ENV[&c] */
 	    size_t len = (size_t) (s - *p);
+
 	    c.ptr = (PTR) new_STRING0(len);
 	    memcpy(string(&c)->str, *p, len);
 	    s++;
@@ -577,6 +745,37 @@ load_environ(ARRAY ENV)
     }
 }
 
+void
+initialize(int argc, char **argv)
+{
+
+    SET_PROGNAME();
+
+    bi_vars_init();		/* load the builtin variables */
+    bi_funct_init();		/* load the builtin functions */
+    kw_init();			/* load the keywords */
+    field_init();
+
+#if USE_BINMODE
+    {
+	char *p = getenv("MAWKBINMODE");
+
+	if (p)
+	    set_binmode(numeric_option(p));
+    }
+#endif
+
+    process_cmdline(argc, argv);
+
+    code_init();
+    fpe_init();
+    set_stdio();
+
+#if USE_BINMODE
+    stdout_init();
+#endif
+}
+
 #ifdef NO_LEAKS
 typedef struct _all_arrays {
     struct _all_arrays *next;
@@ -588,7 +787,7 @@ static ALL_ARRAYS *all_arrays;
 void
 array_leaks(void)
 {
-    while (all_arrays != 0) {
+    while (all_arrays != NULL) {
 	ALL_ARRAYS *next = all_arrays->next;
 	array_clear(all_arrays->a);
 	ZFREE(all_arrays->a);

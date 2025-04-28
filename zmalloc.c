@@ -1,6 +1,6 @@
 /********************************************
 zmalloc.c
-copyright 2008-2013,2019, Thomas E. Dickey
+copyright 2008-2023,2024, Thomas E. Dickey
 copyright 1991-1993,1995, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,12 +11,12 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: zmalloc.c,v 1.31 2019/01/30 01:30:02 tom Exp $
+ * $MawkId: zmalloc.c,v 1.38 2024/12/14 21:21:20 tom Exp $
  */
 
 /*  zmalloc.c  */
-#include  "mawk.h"
-#include  "zmalloc.h"
+#include  <mawk.h>
+#include  <zmalloc.h>
 
 #if defined(NO_LEAKS) && defined(HAVE_TSEARCH)
 #define USE_TSEARCH 1
@@ -33,21 +33,18 @@ the GNU General Public License, version 2, 1991.
 #define BlocksToBytes(size) ((size) << ZSHIFT)
 
 /*
-  zmalloc() gets mem from malloc() in CHUNKS of 2048 bytes
-  and cuts these blocks into smaller pieces that are multiples
-  of eight bytes.  When a piece is returned via zfree(), it goes
-  on a linked linear list indexed by its size.	The lists are
-  an array, pool[].
+ * zmalloc() gets memory from malloc() in chunks and cuts these blocks into
+ * smaller pieces that are multiples of eight bytes.  When a piece is returned
+ * via zfree(), it goes on a linked linear list indexed by its size.  The lists
+ * are an array, pool[].
+ *
+ * For examples, if you ask for 22 bytes with p = zmalloc(22), you actually get
+ * a piece of size 24.  When you free it with zfree(p,22), it is added to the
+ * list at pool[2].
+ */
 
-  E.g., if you ask for 22 bytes with p = zmalloc(22), you actually get
-  a piece of size 24.  When you free it with zfree(p,22) , it is added
-  to the list at pool[2].
-*/
-
-#define POOLSZ	    16
-
-#define	 CHUNK		256
- /* number of blocks to get from malloc */
+#define POOLSZ	        16	/* size of zmalloc's pool[] array */
+#define	CHUNK		256	/* number of ZBLOCKSZ's to get from malloc */
 
 /*****************************************************************************/
 
@@ -142,8 +139,8 @@ record_ptr(PTR ptr, size_t size)
 
     TRACE(("record_ptr %p -> %p %lu\n", (void *) item, ptr, (unsigned long) size));
     result = tsearch(item, &ptr_data, compare_ptr_data);
-    assert(result != 0);
-    assert(*result != 0);
+    assert(result != NULL);
+    assert(*result != NULL);
 
     TRACE2(("->%p (%p %lu)\n",
 	    (*result), (*result)->ptr,
@@ -165,8 +162,8 @@ finish_ptr(PTR ptr, size_t size)
     TRACE2(("finish_ptr (%p) -> %p %lu\n", &dummy, ptr, (unsigned long) size));
     item = tfind(&dummy, &ptr_data, compare_ptr_data);
 
-    assert(item != 0);
-    assert(*item != 0);
+    assert(item != NULL);
+    assert(*item != NULL);
 
     TRACE(("finish_ptr %p -> %p %lu\n",
 	   (void *) (*item),
@@ -191,7 +188,7 @@ finish_ptr(PTR ptr, size_t size)
 
 /*****************************************************************************/
 
-static void
+static GCC_NORETURN void
 out_of_mem(void)
 {
     static char out[] = "out of memory";
@@ -234,7 +231,7 @@ zmalloc(size_t size)
 	RecordPtr(p, size);
     } else {
 
-	if ((p = pool[blocks - 1]) != 0) {
+	if ((p = pool[blocks - 1]) != NULL) {
 	    pool[blocks - 1] = p->link;
 	} else {
 
@@ -287,7 +284,11 @@ zrealloc(PTR p, size_t old_size, size_t new_size)
 {
     register PTR q;
 
-    TRACE(("zrealloc %p %lu ->%lu\n", p, old_size, new_size));
+    TRACE(("zrealloc %p %lu ->%lu\n",
+	   p,
+	   (unsigned long) old_size,
+	   (unsigned long) new_size));
+
     if (new_size > (BlocksToBytes(POOLSZ)) &&
 	old_size > (BlocksToBytes(POOLSZ))) {
 	if (!(q = realloc(p, new_size))) {
@@ -314,7 +315,7 @@ zmalloc_leaks(void)
 {
 #ifdef USE_TSEARCH
     TRACE(("zmalloc_leaks\n"));
-    while (ptr_data != 0) {
+    while (ptr_data != NULL) {
 	PTR_DATA *data = *(PTR_DATA **) ptr_data;
 	tdelete(data, &ptr_data, compare_ptr_data);
 	free_ptr_data(data);

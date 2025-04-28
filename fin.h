@@ -1,6 +1,6 @@
 /********************************************
 fin.h
-copyright 2009-2010,2014 Thomas E. Dickey
+copyright 2009-2023,2024, Thomas E. Dickey
 copyright 1991-1992,1993, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,18 +11,8 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: fin.h,v 1.13 2014/09/13 01:01:10 tom Exp $
- * @Log: fin.h,v @
- * Revision 1.1.1.1  1993/07/03  18:58:13  mike
- * move source to cvs
- *
- * Revision 5.2  1992/01/06  08:16:24  brennan
- * setmode() proto for MSDOS
- *
- * Revision 5.1  91/12/05  07:59:20  brennan
- * 1.1 pre-release
- *
-*/
+ * $MawkId: fin.h,v 1.16 2024/08/25 17:11:16 tom Exp $
+ */
 
 /* fin.h */
 
@@ -33,29 +23,33 @@ the GNU General Public License, version 2, 1991.
 
 /* structure to control input files */
 
-typedef struct {
+typedef struct _fin
+#ifdef Visible_FIN
+{
     int fd;			/* file-descriptor */
     FILE *fp;			/* NULL unless interactive */
     char *buff;			/* base of data read from file */
     char *buffp;		/* current position to read-next */
     char *limit;		/* points past the data in *buff */
-    unsigned nbuffs;		/* sizeof *buff in BUFFSZs */
+    size_t buff_size;		/* allocated size of buff[] */
     int flags;
-} FIN;
+}
+#endif
+FIN;
 
 #define  MAIN_FLAG    1		/* part of main input stream if on */
 #define  EOF_FLAG     2
 #define  START_FLAG   4		/* used when RS == "" */
 #define  FIN_FLAG     8		/* set if fin->buff is no longer beginning */
 
-FIN *FINdopen(int, int);
-FIN *FINopen(char *, int);
-void FINclose(FIN *);
-void FINsemi_close(FIN *);
-char *FINgets(FIN *, size_t *);
-size_t fillbuff(int, char *, size_t);
+extern FIN *FINdopen(int, int);
+extern FIN *FINopen(char *, int);
+extern void FINclose(FIN *);
+extern void FINsemi_close(FIN *);
+extern char *FINgets(FIN *, size_t *);
+extern size_t fillbuff(int, char *, size_t);
+extern void open_main(void);
 
 extern FIN *main_fin;		/* for the main input stream */
-void open_main(void);
 
 #endif /* FIN_H */

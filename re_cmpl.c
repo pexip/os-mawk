@@ -1,6 +1,6 @@
 /********************************************
 re_cmpl.c
-copyright 2008-2014,2016, Thomas E. Dickey
+copyright 2008-2023,2024, Thomas E. Dickey
 copyright 1991-1994,2014, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,22 +11,18 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: re_cmpl.c,v 1.30 2016/09/30 13:47:45 tom Exp $
+ * $MawkId: re_cmpl.c,v 1.43 2024/12/14 21:21:20 tom Exp $
  */
 
-/*  re_cmpl.c  */
+#define Visible_CELL
+#define Visible_RE_DATA
+#define Visible_RE_NODE
+#define Visible_STRING
 
-#include "mawk.h"
-#include "memory.h"
-#include "scan.h"
-#include "regexp.h"
-#include "repl.h"
-
-typedef struct re_node {
-    RE_DATA re;			/* keep this first, for re_destroy() */
-    STRING *sval;
-    struct re_node *link;
-} RE_NODE;
+#include <mawk.h>
+#include <memory.h>
+#include <scan.h>
+#include <regexp.h>
 
 /* a list of compiled regular expressions */
 static RE_NODE *re_list;
@@ -36,7 +32,7 @@ static const char efmt[] = "regular expression compile failed (%s)\n%s";
 /* compile a STRING to a regular expression machine.
    Search a list of pre-compiled strings first
 */
-PTR
+RE_NODE *
 re_compile(STRING * sval)
 {
     register RE_NODE *p;
@@ -74,10 +70,12 @@ re_compile(STRING * sval)
     if (!(p->re.compiled = REcompile(s, sval->len))) {
 	ZFREE(p);
 	sval->ref_cnt--;
-	if (mawk_state == EXECUTION)
-	    rt_error(efmt, REerror(), s);
-	else {			/* compiling */
-	    compile_error(efmt, REerror(), s);
+	if (mawk_state == EXECUTION) {
+	    rt_error(efmt, REerror(), safe_string(s));
+	} else {		/* compiling */
+	    char *safe = safe_string(s);
+	    compile_error(efmt, REerror(), safe);
+	    free(safe);
 	    return (PTR) 0;
 	}
     }
@@ -93,19 +91,19 @@ re_compile(STRING * sval)
     if (dump_RE)
 	REmprint(p->re.compiled, stderr);
 #endif
-    return refRE_DATA(p->re);
+    return p;
 }
 
 /* this is only used by da() */
 
-char *
+STRING *
 re_uncompile(PTR m)
 {
     register RE_NODE *p;
 
     for (p = re_list; p; p = p->link)
 	if (p->re.compiled == cast_to_re(m))
-	    return p->sval->str;
+	    return p->sval;
 #ifdef DEBUG
     bozo("non compiled machine");
 #else
@@ -121,12 +119,12 @@ re_destroy(PTR m)
     RE_NODE *q;
     RE_NODE *r;
 
-    if (p != 0) {
-	for (q = re_list, r = 0; q != 0; r = q, q = q->link) {
+    if (p != NULL) {
+	for (q = re_list, r = NULL; q != NULL; r = q, q = q->link) {
 	    if (q == p) {
 		free_STRING(p->sval);
 		REdestroy(p->re.compiled);
-		if (r != 0)
+		if (r != NULL)
 		    r->link = q->link;
 		else
 		    re_list = q->link;
@@ -150,19 +148,20 @@ re_destroy(PTR m)
  * Here are the Posix rules which this code supports:
            \&   -->   &
 	   \\   -->   \
-	   \c   -->   \c    
-	   &    -->   matched text 
-	   
+	   \c   -->   \c
+	   &    -->   matched text
+
 */
 
 /* FIXME  -- this function doesn't handle embedded nulls
-   split_buff[] and MAX_SPLIT are obsolete, but needed by this
-   function.  Putting
-   them here is temporary until the rewrite to handle nulls.
+   split_buff is obsolete, but needed by this function.
+   Putting them here is temporary until the rewrite to handle nulls.
 */
 
-#define MAX_SPLIT  256		/* handle up to 256 &'s as matched text */
-static STRING *split_buff[MAX_SPLIT];
+#define SPLIT_SIZE  256
+
+static STRING **split_buff;
+static size_t split_size;
 
 static CELL *
 REPL_compile(STRING * sval)
@@ -170,10 +169,25 @@ REPL_compile(STRING * sval)
     VCount count = 0;
     register char *p = sval->str;
     register char *q;
+    register char *r;
     char *xbuff;
     CELL *cp;
+    size_t limit = sval->len + 1;
 
-    q = xbuff = (char *) zmalloc(sval->len + 1);
+    if (limit > split_size) {
+	size_t new_size = limit + SPLIT_SIZE;
+	if (split_buff != NULL) {
+	    size_t old_size = split_size;
+	    split_buff = (STRING **) zrealloc(split_buff,
+					      old_size * sizeof(STRING *),
+					      new_size * sizeof(STRING *));
+	} else {
+	    split_buff = (STRING **) zmalloc(new_size * sizeof(STRING *));
+	}
+	split_size = new_size;
+    }
+
+    q = xbuff = (char *) zmalloc(limit);
 
     while (1) {
 	switch (*p) {
@@ -182,7 +196,26 @@ REPL_compile(STRING * sval)
 	    goto done;
 
 	case '\\':
-	    if (p[1] == '&' || p[1] == '\\') {
+	    if (p[1] == '\\') {
+		int merge = 0;
+		for (r = p + 2; *r; ++r) {
+		    if (r[0] == '&') {
+			/* gotcha! */
+			merge = 1;
+		    } else if (r[0] != '\\') {
+			/* give up: do not alter */
+			break;
+		    }
+		}
+		if (merge) {
+		    *q++ = p[1];
+		    p += 2;
+		} else {
+		    *q++ = *p++;
+		    *q++ = *p++;
+		}
+		continue;
+	    } else if (p[1] == '&') {
 		*q++ = p[1];
 		p += 2;
 		continue;
@@ -214,10 +247,6 @@ REPL_compile(STRING * sval)
     if (q > xbuff || count == 0)
 	split_buff[count++] = new_STRING(xbuff);
 
-    /* This will never happen */
-    if (count > MAX_SPLIT)
-	overflow("replacement pieces", MAX_SPLIT);
-
     cp = ZMALLOC(CELL);
     if (count == 1 && split_buff[0]) {
 	cp->type = C_REPL;
@@ -236,7 +265,7 @@ REPL_compile(STRING * sval)
 	cp->type = C_REPLV;
 	cp->vcnt = count;
     }
-    zfree(xbuff, sval->len + 1);
+    zfree(xbuff, limit);
     return cp;
 }
 
@@ -250,7 +279,7 @@ repl_destroy(CELL *cp)
 
     if (cp->type == C_REPL) {
 	free_STRING(string(cp));
-    } else if (cp->ptr != 0) {	/* an C_REPLV           */
+    } else if (cp->ptr != NULL) {	/* an C_REPLV           */
 	p = (STRING **) cp->ptr;
 	for (cnt = cp->vcnt; cnt; cnt--) {
 	    if (*p) {
@@ -344,7 +373,7 @@ repl_compile(STRING * sval)
 /* return the string for a CELL or type REPL or REPLV,
    this is only used by da()  */
 
-char *
+const STRING *
 repl_uncompile(CELL *cp)
 {
     register REPL_NODE *p = repl_list;
@@ -352,7 +381,7 @@ repl_uncompile(CELL *cp)
     if (cp->type == C_REPL) {
 	while (p) {
 	    if (p->cp->type == C_REPL && p->cp->ptr == cp->ptr)
-		return p->sval->str;
+		return p->sval;
 	    else
 		p = p->link;
 	}
@@ -361,7 +390,7 @@ repl_uncompile(CELL *cp)
 	    if (p->cp->type == C_REPLV &&
 		memcmp(cp->ptr, p->cp->ptr, cp->vcnt * sizeof(STRING *))
 		== 0)
-		return p->sval->str;
+		return p->sval;
 	    else
 		p = p->link;
 	}
@@ -446,19 +475,23 @@ no_leaks_re_ptr(PTR m)
 void
 re_leaks(void)
 {
-    while (all_ptrs != 0) {
+    while (all_ptrs != NULL) {
 	ALL_PTRS *next = all_ptrs->next;
 	re_destroy(all_ptrs->m);
 	free(all_ptrs);
 	all_ptrs = next;
     }
 
-    while (repl_list != 0) {
+    while (repl_list != NULL) {
 	REPL_NODE *p = repl_list->link;
 	free_STRING(repl_list->sval);
 	free_cell_data(repl_list->cp);
 	ZFREE(repl_list);
 	repl_list = p;
+    }
+
+    if (split_size != 0) {
+	zfree(split_buff, split_size * sizeof(STRING *));
     }
 }
 #endif

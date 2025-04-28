@@ -1,6 +1,6 @@
 /********************************************
 hash.c
-copyright 2008-2010,2012, Thomas E. Dickey
+copyright 2008-2021,2024, Thomas E. Dickey
 copyright 1991-1993,1994, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,30 +11,20 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: hash.c,v 1.19 2012/11/02 00:39:27 tom Exp $
- * @Log: hash.c,v @
- * Revision 1.3  1994/10/08  19:15:43  mike
- * remove SM_DOS
- *
- * Revision 1.2  1993/07/16  00:17:35  mike
- * cleanup
- *
- * Revision 1.1.1.1  1993/07/03	 18:58:14  mike
- * move source to cvs
- *
- * Revision 5.1	 1991/12/05  07:56:05  brennan
- * 1.1 pre-release
- *
+ * $MawkId: hash.c,v 1.24 2024/12/14 21:21:20 tom Exp $
  */
 
-/* hash.c */
+#define Visible_CELL
+#define Visible_FBLOCK
+#define Visible_STRING
+#define Visible_SYMTAB
 
-#include "mawk.h"
-#include "memory.h"
-#include "symtype.h"
+#include <mawk.h>
+#include <memory.h>
+#include <symtype.h>
 
 #ifdef NO_LEAKS
-#include "bi_vars.h"
+#include <bi_vars.h>
 #endif
 
 /*
@@ -209,11 +199,11 @@ void
 restore_ids(void)
 {
     register HASHNODE *p, *q;
-    register unsigned h;
 
     q = save_list;
     save_list = (HASHNODE *) 0;
     while (q) {
+	register unsigned h;
 	p = q;
 	q = q->link;
 	free_hashnode(p);
@@ -229,8 +219,8 @@ restore_ids(void)
 const char *
 reverse_find(int type, PTR ptr)
 {
-    CELL *cp = 0;
-    ARRAY array = 0;
+    CELL *cp = NULL;
+    ARRAY array = NULL;
     static char uk[] = "unknown";
 
     int i;
@@ -306,7 +296,7 @@ free_hashnode(HASHNODE * p)
 	break;
     case ST_VAR:
 	cp = p->symtab.stval.cp;
-	if (cp != 0
+	if (cp != NULL
 	    && (cp < bi_vars || cp > bi_vars + NUM_BI_VAR)) {
 	    switch (cp->type) {
 	    case C_STRING:
@@ -333,7 +323,7 @@ hash_leaks(void)
 
     TRACE(("hash_leaks\n"));
     for (i = 0; i < HASH_PRIME; i++) {
-	while ((p = hash_table[i]) != 0) {
+	while ((p = hash_table[i]) != NULL) {
 	    free_hashnode(p);
 	}
     }

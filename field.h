@@ -1,6 +1,6 @@
 /********************************************
 field.h
-copyright 2009-2010,2014 Thomas E. Dickey
+copyright 2009-2023,2024 Thomas E. Dickey
 copyright 1991-1995,2014 Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,20 +11,7 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: field.h,v 1.12 2014/08/22 00:51:01 tom Exp $
- * @Log: field.h,v @
- * Revision 1.2  1995/06/18  19:42:16  mike
- * Remove some redundant declarations and add some prototypes
- *
- * Revision 1.1.1.1  1993/07/03  18:58:12  mike
- * move source to cvs
- *
- * Revision 5.2  1992/01/06  08:10:24  brennan
- * set_binmode() proto for MSDOS
- *
- * Revision 5.1  91/12/05  07:59:16  brennan
- * 1.1 pre-release
- *
+ * $MawkId: field.h,v 1.21 2024/11/15 01:59:53 tom Exp $
  */
 
 /* field.h */
@@ -32,17 +19,17 @@ the GNU General Public License, version 2, 1991.
 #ifndef  MAWK_FIELD_H
 #define  MAWK_FIELD_H   1
 
-#include "nstd.h"
-#include "types.h"
+#include <nstd.h>
+#include <types.h>
 
-extern void set_field0(char *, size_t);
+extern void set_field0(const char *, size_t);
 extern void split_field0(void);
 extern void field_assign(CELL *, CELL *);
-extern char *is_string_split(PTR, SLen *);
+extern char *is_string_split(PTR, size_t *);
 extern void slow_cell_assign(CELL *, CELL *);
 extern CELL *slow_field_ptr(int);
-extern int field_addr_to_index(CELL *);
-extern void set_binmode(int);
+extern int field_addr_to_index(const CELL *);
+extern void set_binmode(long);
 
 #define  NUM_PFIELDS		5
 extern CELL field[FBANK_SZ + NUM_PFIELDS];
@@ -79,6 +66,7 @@ extern CELL **fbankv;		/* fbankv[0] == field */
 
 #define  LAST_PFIELD	OFMT
 
+extern int OFMT_type;		/* PF_xxx type, for out-of-range print */
 extern int nf;			/* shadows NF */
 
 /* a shadow type for RS and FS */
@@ -88,22 +76,20 @@ extern int nf;			/* shadows NF */
 #define  SEP_RE         3
 #define  SEP_MLR	4
 
-typedef struct {
+typedef struct _separator
+#ifdef Visible_SEPARATOR
+{
     char type;
     char c;
-    PTR ptr;			/* STRING* or RE machine* */
-} SEPARATOR;
+    union {
+	STRING *s_ptr;
+	RE_NODE *r_ptr;
+    } u;
+}
+#endif
+SEPARATOR;
 
 extern SEPARATOR rs_shadow;
 extern CELL fs_shadow;
-
-/*  types for splitting overflow */
-
-typedef struct spov {
-    struct spov *link;
-    STRING *sval;
-} SPLIT_OV;
-
-extern SPLIT_OV *split_ov_list;
 
 #endif /* MAWK_FIELD_H  */

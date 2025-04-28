@@ -1,6 +1,6 @@
 /********************************************
 error.c
-copyright 2008-2014,2016 Thomas E. Dickey
+copyright 2008-2023,2024 Thomas E. Dickey
 copyright 1991-1994,1995 Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,19 +11,29 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: error.c,v 1.23 2016/09/29 23:00:43 tom Exp $
+ * $MawkId: error.c,v 1.31 2024/12/14 12:53:14 tom Exp $
  */
+
+#define Visible_CELL
+#define Visible_STRING
+#define Visible_SYMTAB
 
 #include <mawk.h>
 #include <scan.h>
 #include <bi_vars.h>
+
+#ifdef DEBUG
+#define FLUSH() fflush(stdout)
+#else
+#define FLUSH()			/* nothing */
+#endif
 
 /* for run time error messages only */
 unsigned rt_nr, rt_fnr;
 /* *INDENT-OFF* */
 static const struct token_str {
     short token;
-    const char *str;
+    const char str[12];
 } token_str[] = {
     { EOF,                "end of file" },
     { NL,                 "end of line" },
@@ -52,7 +62,7 @@ static const struct token_str {
     { LTE,                "<=" },
     { GT,                 ">" },
     { GTE,                ">=" },
-    { MATCH,              string_buff },
+    { MATCH,              "" },	/* string_buff */
     { PLUS,               "+" },
     { MINUS,              "-" },
     { MUL,                "*" },
@@ -61,18 +71,18 @@ static const struct token_str {
     { POW,                "^" },
     { NOT,                "!" },
     { COMMA,              "," },
-    { INC_or_DEC,         string_buff },
-    { DOUBLE,             string_buff },
-    { STRING_,            string_buff },
-    { ID,                 string_buff },
-    { FUNCT_ID,           string_buff },
-    { BUILTIN,            string_buff },
-    { IO_OUT,             string_buff },
+    { INC_or_DEC,         "" },	/* string_buff */
+    { DOUBLE,             "" },	/* string_buff */
+    { STRING_,            "" },	/* string_buff */
+    { ID,                 "" },	/* string_buff */
+    { FUNCT_ID,           "" },	/* string_buff */
+    { BUILTIN,            "" },	/* string_buff */
+    { IO_OUT,             "" },	/* string_buff */
     { IO_IN,              "<" },
     { PIPE,               "|" },
     { DOLLAR,             "$" },
     { FIELD,              "$" },
-    { 0,                  (char *) 0 }
+    { 0,                  "" }
 };
 /* *INDENT-ON* */
 
@@ -100,23 +110,21 @@ missing(int c, const char *n, unsigned ln)
 	s0 = s1 = "";
 
     errmsg(0, "%s%sline %u: missing %c near %s", s0, s1, ln, c, n);
+
+    if (++compile_error_count >= MAX_COMPILE_ERRORS)
+	mawk_exit(2);
 }
 
-/* we won't use s as input
-   (yacc and bison force this).
-   We will use s for storage to keep lint or the compiler
-   off our back.
-*/
 void
 yyerror(const char *s GCC_UNUSED)
 {
-    const char *ss = 0;
+    const char *ss = NULL;
     const struct token_str *p;
     const int *ip;
 
     for (p = token_str; p->token; p++)
 	if (current_token == p->token) {
-	    ss = p->str;
+	    ss = p->str[0] ? p->str : string_buff;
 	    break;
 	}
 
@@ -129,7 +137,7 @@ yyerror(const char *s GCC_UNUSED)
 		if (*ip == current_token) {
 		    missing(')', ss, token_lineno);
 		    paren_cnt = 0;
-		    goto done;
+		    return;
 		}
 
 	if (brace_cnt)
@@ -137,17 +145,18 @@ yyerror(const char *s GCC_UNUSED)
 		if (*ip == current_token) {
 		    missing('}', ss, token_lineno);
 		    brace_cnt = 0;
-		    goto done;
+		    return;
 		}
 
 	compile_error("syntax error at or near %s", ss);
 
-    } else			/* special cases */
+    } else {			/* special cases */
 	switch (current_token) {
 	case UNEXPECTED:
 	    unexpected_char();
-	    goto done;
+	    break;
 
+#ifndef LCOV_UNUSED
 	case BAD_DECIMAL:
 	    compile_error(
 			     "syntax error in decimal constant %s",
@@ -159,31 +168,29 @@ yyerror(const char *s GCC_UNUSED)
 			     "syntax error at or near /%s/",
 			     string_buff);
 	    break;
+#endif
 
 	default:
 	    compile_error("syntax error");
 	    break;
 	}
-    return;
-
-  done:
-    if (++compile_error_count == MAX_COMPILE_ERRORS)
-	mawk_exit(2);
+    }
 }
 
 /* generic error message with a hook into the system error
    messages if errnum > 0 */
 
 void
-errmsg(int errnum, const char *format,...)
+errmsg(int errnum, const char *format, ...)
 {
     va_list args;
 
+    FLUSH();
     fprintf(stderr, "%s: ", progname);
 
 #if OPT_TRACE > 0
     va_start(args, format);
-    Trace("\n?? errmsg \n");
+    Trace("\n?? errmsg: ");
     TraceVA(format, args);
     Trace("\n");
     va_end(args);
@@ -200,7 +207,7 @@ errmsg(int errnum, const char *format,...)
 }
 
 void
-compile_error(const char *format,...)
+compile_error(const char *format, ...)
 {
     va_list args;
     const char *s0, *s1;
@@ -214,15 +221,13 @@ compile_error(const char *format,...)
 	s0 = s1 = "";
     }
 
-#ifdef DEBUG
-    fflush(stdout);
-#endif
+    FLUSH();
     fprintf(stderr, "%s: %s%sline %u: ", progname, s0, s1, token_lineno);
     va_start(args, format);
     vfprintf(stderr, format, args);
     va_end(args);
     fprintf(stderr, "\n");
-    if (++compile_error_count == MAX_COMPILE_ERRORS)
+    if (++compile_error_count >= MAX_COMPILE_ERRORS)
 	mawk_exit(2);
 }
 
@@ -253,10 +258,11 @@ rt_where(void)
 }
 
 void
-rt_error(const char *format,...)
+rt_error(const char *format, ...)
 {
     va_list args;
 
+    FLUSH();
     fprintf(stderr, "%s: run time error: ", progname);
     va_start(args, format);
     vfprintf(stderr, format, args);
@@ -280,17 +286,20 @@ unexpected_char(void)
 {
     int c = yylval.ival;
 
+    FLUSH();
     fprintf(stderr, "%s: %u: ", progname, token_lineno);
     if (c > ' ' && c < 127)
 	fprintf(stderr, "unexpected character '%c'\n", c);
     else
 	fprintf(stderr, "unexpected character 0x%02x\n", c);
+    if (++compile_error_count >= MAX_COMPILE_ERRORS)
+	mawk_exit(2);
 }
 
 const char *
 type_to_str(int type)
 {
-    const char *retval = 0;
+    const char *retval = NULL;
 
     switch (type) {
     case ST_NONE:
@@ -299,15 +308,18 @@ type_to_str(int type)
     case ST_VAR:
 	retval = "variable";
 	break;
+#ifndef LCOV_UNUSED
     case ST_KEYWORD:
 	retval = "keyword";
 	break;
     case ST_BUILTIN:
 	retval = "builtin";
 	break;
+#endif
     case ST_ARRAY:
 	retval = "array";
 	break;
+#ifndef LCOV_UNUSED
     case ST_FIELD:
 	retval = "field";
 	break;
@@ -320,9 +332,7 @@ type_to_str(int type)
     case ST_FUNCT:
 	retval = "function";
 	break;
-    case ST_LENGTH:
-	retval = "length";
-	break;
+#endif
     case ST_LOCAL_VAR:
 	retval = "local variable";
 	break;

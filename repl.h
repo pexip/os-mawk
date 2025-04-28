@@ -1,6 +1,6 @@
 /********************************************
 repl.h
-copyright 2009-2010,2014, Thomas E. Dickey
+copyright 2009-2023,2024, Thomas E. Dickey
 copyright 1991,1993, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,14 +11,7 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: repl.h,v 1.8 2014/09/14 20:55:12 tom Exp $
- * @Log: repl.h,v @
- * Revision 1.1.1.1  1993/07/03  18:58:19  mike
- * move source to cvs
- *
- * Revision 5.1  1991/12/05  07:59:32  brennan
- * 1.1 pre-release
- *
+ * $MawkId: repl.h,v 1.14 2024/09/05 17:24:56 tom Exp $
  */
 
 /* repl.h */
@@ -26,13 +19,27 @@ the GNU General Public License, version 2, 1991.
 #ifndef  REPL_H
 #define  REPL_H
 
-#include "types.h"
+#include <types.h>
 
-typedef struct re_data {
+typedef struct _re_data
+#ifdef Visible_RE_DATA
+{
+    PTR compiled;		/* must be first... */
     int anchored;		/* use to limit recursion in gsub */
     int is_empty;		/* check if pattern is empty */
-    PTR compiled;
-} RE_DATA;
+}
+#endif
+RE_DATA;
+
+typedef struct _re_node
+#ifdef Visible_RE_NODE
+{
+    RE_DATA re;			/* keep this first, for re_destroy() */
+    STRING *sval;
+    struct _re_node *link;
+}
+#endif
+RE_NODE;
 
 /*
  * re_compile returns a RE_DATA*, but mawk handles it as a PTR thereafter.
@@ -40,13 +47,12 @@ typedef struct re_data {
 #define isAnchored(ptr) (((RE_DATA *)(ptr))->anchored)
 #define isEmpty_RE(ptr) (((RE_DATA *)(ptr))->is_empty)
 #define cast_to_re(ptr) (((RE_DATA *)(ptr))->compiled)
-#define refRE_DATA(re)  ((PTR) &(re))
 
-PTR re_compile(STRING *);
-char *re_uncompile(PTR);
+RE_NODE *re_compile(STRING *);
+STRING *re_uncompile(PTR);
 
 CELL *repl_compile(STRING *);
-char *repl_uncompile(CELL *);
+const STRING *repl_uncompile(CELL *);
 void re_destroy(PTR);
 void repl_destroy(CELL *);
 CELL *replv_cpy(CELL *, CELL *);

@@ -1,6 +1,6 @@
-.\" $MawkId: mawk.1,v 1.36 2019/12/31 19:29:31 tom Exp $
+.\" $MawkId: mawk.1,v 1.67 2024/09/05 22:23:55 tom Exp $
 .\" ###########################################################################
-.\" # copyright 2008-2016,2019, Thomas E. Dickey
+.\" # copyright 2008-2023,2024, Thomas E. Dickey
 .\" # copyright 1996, Michael D. Brennan
 .\" #
 .\" # This is a source file for mawk, an implementation of
@@ -11,7 +11,7 @@
 .\" ###########################################################################
 .ds N Mawk
 .ds n mawk
-.TH MAWK 1 "2019-12-31" "Version 1.3.4" "USER COMMANDS"
+.TH MAWK 1 2024-09-05 "Version 1.3.4" "User commands"
 .\" strings
 .ds ex \fIexpr\fR
 .\" Bulleted paragraph
@@ -20,15 +20,23 @@
 .el    .IP \(bu 2
 ..
 .\" Escape single quotes in literal strings from groff's Unicode transform.
-.ie \n(.g .ds AQ \(aq
-.el       .ds AQ '
-.ie \n(.g .ds `` \(lq
-.el       .ds `` ``
-.ie \n(.g .ds '' \(rq
-.el       .ds '' ''
+.ie \n(.g \{\
+.ds `` \(lq
+.ds '' \(rq
+.ds '  \(aq
+.\}
+.el \{\
+.ie t .ds `` ``
+.el   .ds `` ""
+.ie t .ds '' ''
+.el   .ds '' ""
+.ie t .ds '  \(aq
+.el   .ds '  '
+.\}
 .\" **************************************************************************
 .SH NAME
-mawk \- pattern scanning and text processing language
+mawk \-
+pattern scanning and text processing language
 .\" **************************************************************************
 .SH SYNOPSIS
 \fB\*n\fP
@@ -97,7 +105,7 @@ is executed.
 sets the field separator, \fBFS\fR, to
 .IR value .
 .TP
-\-\fBf \fIfile
+\-\fBf \fIfile\fR
 Program text is read from \fIfile\fR instead of from the
 command line.
 Multiple
@@ -119,13 +127,13 @@ Implementation specific options are prefaced with
 .BR \-W .
 \fB\*n\fP
 provides these:
-.TP \w'\-\fBW'u+\w'\fRsprintf=\fInum\fR'u+2n
+.TP
 \-\fBW \fRdump
 writes an assembler like listing of the internal
 representation of the program to stdout and exits 0
 (on successful compilation).
 .TP
-\-\fBW \fRexec \fIfile
+\-\fBW \fRexec \fIfile\fR
 Program text is read from
 .I file
 and this is the last option.
@@ -133,7 +141,7 @@ and this is the last option.
 This is a useful alternative to \-\fBf\fP on systems that support the
 .B #!
 \*(``magic number\*('' convention for executable scripts.
-Those implicitly pass the pathname of the script itself as the final 
+Those implicitly pass the pathname of the script itself as the final
 parameter, and expect no more than one \*(``\-\*('' option on the \fB#!\fP line.
 Because \fB\*n\fP can combine multiple \-\fBW\fP options separated by
 commas, you can use this option when an additional \-\fBW\fP option is needed.
@@ -146,10 +154,16 @@ sets unbuffered writes to stdout and line buffered reads from stdin.
 Records from stdin are lines regardless of the value of
 .BR RS .
 .TP
-\-\fBW \fRposix_space
+\-\fBW \fRposix
+modifies \fB\*n\fP's behavior to be more POSIX-compliant:
+.RS
+.bP
 forces
 \fB\*n\fP
 not to consider '\en' to be space.
+.RE
+.IP
+The original \*(``posix_space\*('' is recognized, but deprecated.
 .TP
 \-\fBW \fRrandom=\fInum\fR
 calls \fBsrand\fP with the given parameter
@@ -165,6 +179,10 @@ More than rare use of this option indicates
 \fB\*n\fP
 should be recompiled.
 .TP
+\-\fBW \fRtraditional
+Omit features such as interval expressions which were not supported by
+traditional \fIawk\fP.
+.TP
 \-\fBW \fRusage
 prints a usage message to stderr and exits (same as \*(``\-\fBW\ \fRhelp\*('').
 .TP
@@ -174,7 +192,7 @@ writes its version and copyright
 to stdout and compiled limits to
 stderr and exits 0.
 .PP
-\fB\*n\fP accepts abbreviations for any of these options, e.g., 
+\fB\*n\fP accepts abbreviations for any of these options, e.g.,
 \*(``\-\fBW\ \fRv\*('' and \*(``\-\fBW\fRv\*(''
 both tell \fB\*n\fP to show its version.
 .PP
@@ -367,7 +385,7 @@ is string and
 is numeric.
 .PP
 To evaluate,
-\*(ex\d1\u \fBrel-op \*(ex\d2\u,
+\*(ex\d1\u \fBrel-op\fR \*(ex\d2\u,
 if both operands are numeric or number and string then the comparison
 is numeric; if both operands are string the comparison is string;
 if one operand is string, the non-string operand is converted and
@@ -421,9 +439,18 @@ The regular expression metacharacters, i.e., those with special
 meaning in regular expressions are
 .nf
 .sp
-	\\ ^ $ . [ ] | ( ) * + ?
+	\\ ^ $ . [ ] | ( ) * + ? { }
 .sp
 .fi
+If the command line option \fI-W traditional\fP is used, these are omitted:
+.nf
+.sp
+	{ }
+.sp
+.fi
+are also regular expression metacharacters, and in this mode,
+require escaping to be a literal character.
+
 Regular expressions are built up from characters as follows:
 .RS 5
 .TP \w'[^c\d1\uc\d2\uc\d3\u...]'u+1n
@@ -432,13 +459,10 @@ matches any non-metacharacter
 .IR c .
 .TP
 \e\fIc\fR
-matches a character defined by the same escape sequences used
+matches a character defined by the same
+escape sequences used
 in string constants or the literal
-character
-.I c
-if
-\e\fIc\fR
-is not an escape sequence.
+character \fIc\fR if \e\fIc\fR is not an escape sequence.
 .TP
 \&\.
 matches any character (including newline).
@@ -469,13 +493,15 @@ matches
 \fIr\fR\d1\u
 followed immediately by
 \fIr\fR\d2\u
-(concatenation).
+(\fIconcatenation\fR).
+.sp
 .TP
 \fIr\fR\d1\u | \fIr\fR\d2\u
 matches
 \fIr\fR\d1\u or
 \fIr\fR\d2\u
-(alternation).
+(\fIalternation\fR).
+.sp
 .TP
 \fIr\fR*
 matches \fIr\fR repeated zero or more times.
@@ -485,14 +511,32 @@ matches \fIr\fR repeated one or more times.
 .TP
 \fIr\fR?
 matches \fIr\fR zero or once.
+(\fIrepetition\fR).
 .TP
 (\fIr\fR)
-matches \fIr\fR, providing grouping.
-.RE
+matches \fIr\fR
+(\fIgrouping\fR).
 .sp
-The increasing precedence of operators is alternation,
-concatenation and
-unary (*, + or ?).
+.TP
+\fIr\fR{n}
+matches \fIr\fR exactly n times.
+.TP
+\fIr\fR{n,}
+matches \fIr\fR repeated n or more times.
+.TP
+\fIr\fR{n,m}
+matches \fIr\fR repeated n to m (inclusive) times.
+.TP
+\fIr\fR{,m}
+matches \fIr\fR repeated 0 to m times (a non-standard option).
+.RE
+.PP
+The increasing \fBprecedence of operators\fR is:
+.nf
+.sp
+alternation concatenation repetition grouping
+.sp
+.fi
 .PP
 For example,
 .nf
@@ -530,7 +574,7 @@ back and between every character.
 For example,
 .nf
 .sp
-	echo  abc | \*n { gsub(//, "X") ; print }
+	echo  abc | \*n '{ gsub(//, "X")' ; print }
 	XaXbXcX
 .sp
 .fi
@@ -603,7 +647,6 @@ The first comparison is numeric, the second is string, the third is string
 and the last is string.
 .\"
 .SS "\fB5. Expressions and operators"
-.PP
 The expression syntax is similar to C.
 Primary expressions are numeric constants,
 string constants, variables, fields, arrays and function calls.
@@ -689,10 +732,10 @@ causes
 \*(ae
 not to exist.
 \fB\*n\fP
-supports an extension,
+supports the
 .B delete
-.IR array ,
-which deletes all elements of
+.I array
+feature, which deletes all elements of
 .IR array .
 .PP
 Multidimensional arrays are synthesized with concatenation using
@@ -710,11 +753,10 @@ such as
 .sp
 .\"
 .SS "\fB7. Builtin-variables\fR"
-.PP
 The following variables are built-in and initialized before program
 execution.
 .RS 5
-.TP \w'FILENAME'u+2n
+.TP
 .B ARGC
 number of command line arguments.
 .TP
@@ -773,7 +815,7 @@ used to build multiple array subscripts, initially = "\e034".
 .RE
 .\"
 .SS "\fB8. Built-in functions"
-String functions
+.B String functions
 .RS 5
 .TP
 gsub(\fIr,s,t\fR)  gsub(\fIr,s\fR)
@@ -789,7 +831,9 @@ If
 is omitted,
 .B $0
 is used.
-An & in the replacement string
+An
+.I &
+in the replacement string
 .I s
 is replaced by the matched substring of
 .IR t .
@@ -809,7 +853,7 @@ The first character of
 is in position 1.
 .TP
 length(\fIs\fR)
-Returns the length of string or array.
+Returns the length of string or array
 .IR s .
 .TP
 match(\fIs,r\fR)
@@ -880,7 +924,7 @@ Returns a copy of
 with all lower case characters converted to upper case.
 .RE
 .PP
-Time functions
+.B Time functions
 .PP
 These are available on systems which support the corresponding C
 \fBmktime\fP and \fBstrftime\fP functions:
@@ -893,25 +937,25 @@ The date specification is a string containing the components of the
 date as decimal integers:
 .RS
 .TP 3
-YYYY
+.B YYYY
 the year, e.g., 2012
 .TP 3
-MM
+.B MM
 the month of the year starting at 1
 .TP 3
-DD
+.B DD
 the day of the month starting at 1
 .TP 3
-HH
+.B HH
 hour (0-23)
 .TP 3
-MM
+.B MM
 minute (0-59)
 .TP 3
-SS
+.B SS
 seconds (0-59)
 .TP 3
-DST
+.B DST
 tells how to treat timezone versus daylight savings time:
 .RS 5
 .TP 3
@@ -948,30 +992,38 @@ returns the current time of day as the number of seconds
 since the Epoch (1970-01-01 00:00:00 UTC on POSIX systems).
 .RE
 .PP
-Arithmetic functions
+.B Arithmetic functions
 .RS 5
-.PP
-.nf
 .ie n .ds Pi pi
 .el   .ds Pi \\(*p
-atan2(\fIy,x\fR)	Arctan of \fIy\fR/\fIx\fR between \-\*(Pi and \*(Pi.
-.PP
-cos(\fIx\fR)		Cosine function, \fIx\fR in radians.
-.PP
-exp(\fIx\fR)		Exponential function.
-.PP
-int(\fIx\fR)		Returns \fIx\fR truncated towards zero.
-.PP
-log(\fIx\fR)		Natural logarithm.
-.PP
-rand()		Returns a random number between zero and one.
-.PP
-sin(\fIx\fR)		Sine function, \fIx\fR in radians.
-.PP
-sqrt(\fIx\fR)		Returns square root of \fIx\fR.
-.fi
 .TP
-srand(\fIexpr\fR)  srand()
+atan2(\fIy,x\fR)
+Arctan of \fIy\fR/\fIx\fR between \-\*(Pi and \*(Pi.
+.TP
+cos(\fIx\fR)
+Cosine function, \fIx\fR in radians.
+.TP
+exp(\fIx\fR)
+Exponential function.
+.TP
+int(\fIx\fR)
+Returns \fIx\fR truncated towards zero.
+.TP
+log(\fIx\fR)
+Natural logarithm.
+.TP
+rand()
+Returns a random number between zero and one.
+.TP
+sin(\fIx\fR)
+Sine function, \fIx\fR in radians.
+.TP
+sqrt(\fIx\fR)
+Returns square root of \fIx\fR.
+.TP
+srand(\fIexpr\fR)
+.TP
+srand()
 Seeds the random number generator,
 using the clock if \fIexpr\fP is omitted,
 and returns the value of the previous seed.
@@ -1072,7 +1124,7 @@ from \fIfile\fR,
 updates the fields and
 .BR NF .
 .TP
-getline \fIvar
+getline \fIvar\fR
 reads the next record into
 .IR var ,
 updates
@@ -1080,7 +1132,7 @@ updates
 and
 .BR FNR .
 .TP
-getline \fIvar\fR < \fIfile
+getline \fIvar\fR < \fIfile\fR
 reads the next record of
 .I file
 into
@@ -1094,7 +1146,7 @@ into
 and updates the fields and
 .BR NF .
 .TP
-\fIcommand\fR | getline \fIvar
+\fIcommand\fR | getline \fIvar\fR
 pipes a record from
 .I command
 into
@@ -1133,13 +1185,13 @@ uses the C runtime \fBsystem\fP call to execute
 and returns the corresponding wait status of the command as follows:
 .bP
 if the \fBsystem\fP call failed, setting the status to -1,
-\fImawk\fP returns that value.
+\fB\*n\fP returns that value.
 .bP
 if the command exited normally,
-\fImawk\fP returns its exit-status.
+\fB\*n\fP returns its exit-status.
 .bP
 if the command exited due to a signal such as \fBSIGHUP\fP,
-\fImawk\fP returns the signal number plus 256.
+\fB\*n\fP returns the signal number plus 256.
 .PP
 Changes made to the
 .B ENVIRON
@@ -1189,7 +1241,7 @@ function name and the '(' of the arguments must touch to
 avoid confusion with concatenation.
 .sp
 A function parameter is normally a scalar value (number or string).
-If there is a forward reference to a function using an array as a parameter, 
+If there is a forward reference to a function using an array as a parameter,
 the function's corresponding parameter will be treated as an array.
 .\"
 .SS "\fB11. Splitting strings, records and files"
@@ -1339,12 +1391,12 @@ a file is "a\ b\enc\en\en",
 then there is one record \*(``a\ b\enc\*('' with three
 fields \*(``a\*('', \*(``b\*('' and \*(``c\*('':
 .bP
-Changing
+using
 .B FS
 = \*(``\en\*('', gives two
 fields \*(``a b\*('' and \*(``c\*('';
 .bP
-changing
+using
 .B FS
 = \*(``\*('', gives one field
 identical to the record.
@@ -1383,13 +1435,16 @@ First
 .B ARGC
 is set to the total number of command line arguments passed to
 the execution phase of the program.
+.bP
 .B ARGV[0]
-is set the name of the AWK interpreter and
+is set to the name of the AWK interpreter and
+.bP
 \fBARGV[1]\fR ...
 .B ARGV[ARGC\-1]
 holds the remaining command line arguments exclusive of
 options and program source.
-For example with
+.PP
+For example, with
 .nf
 .sp
 	\*n  \-f  prog  v=1  A  t=hello  B
@@ -1397,16 +1452,22 @@ For example with
 .fi
 .B ARGC
 = 5 with
+.RS
 .B ARGV[0]
 = "\*n",
+.br
 .B ARGV[1]
 = "v=1",
+.br
 .B ARGV[2]
 = "A",
+.br
 .B ARGV[3]
 = "t=hello" and
+.br
 .B ARGV[4]
 = "B".
+.RE
 .PP
 Next, each
 .B BEGIN
@@ -1421,7 +1482,7 @@ If
 equals 1,
 the input stream is set to stdin,
 else  the command line arguments
-.BR ARGV[1]  " ...
+.BR ARGV[1]  " ..."
 .B ARGV[ARGC\-1]
 are examined for a file argument.
 .PP
@@ -1546,66 +1607,48 @@ a later
 .B exit
 or subsequent error.
 .\" **************************************************************************
-.SH EXAMPLES
-.nf
-1. emulate cat.
-
-	{ print }
-
-2. emulate wc.
-
-	{ chars += length($0) + 1  # add one for the \en
-	  words += NF
-	}
-
-	END{ print NR, words, chars }
-
-3. count the number of unique \*(``real words\*(''.
-
-	BEGIN { FS = "[^A\-Za\-z]+" }
-
-	{ for(i = 1 ; i <= NF ; i++)  word[$i] = "" }
-
-	END { delete word[""]
-	      for ( i in word )  cnt++
-	      print cnt
-	}
-
-.fi
-4. sum the second field of
-every record based on the first field.
-.nf
-
-	$1 ~ /credit\||\|gain/ { sum += $2 }
-	$1 ~ /debit\||\|loss/  { sum \-= $2 }
-
-	END { print sum }
-
-5. sort a file, comparing as string
-
-	{ line[NR] = $0 "" }  # make sure of comparison type
-			      # in case some lines look numeric
-
-	END {  isort(line, NR)
-	  for(i = 1 ; i <= NR ; i++) print line[i]
-	}
-
-	#insertion sort of A[1..n]
-	function isort( A, n,	i, j, hold)
-	{
-	  for( i = 2 ; i <= n ; i++)
-	  {
-	    hold = A[j = i]
-	    while ( A[j\-1] > hold )
-	    { j\-\|\- ; A[j+1] = A[j] }
-	    A[j] = hold
-	  }
-	  # sentinel A[0] = "" will be created if needed
-	}
-
-.fi
+.SH ENVIRONMENT
+\fB\*N\fP recognizes these variables:
+.RS 3
+.TP 3
+MAWKBINMODE
+(see \fBCOMPATIBILITY\fP)
+.TP
+MAWK_LONG_OPTIONS
+If this is set, \fB\*n\fP uses its value to decide what to do with
+GNU-style long options:
+.RS 5
+.TP
+allow
+\fB\*N\fP allows the option to be checked against the (small) set of
+long options it recognizes.
+.IP
+The long names from the \fB\-W\fP option are recognized,
+e.g.,
+\fB\-\-version\fP is derived from
+\fB\-Wversion\fP.
+.TP
+error
+\fB\*N\fP prints an error message and exits.
+This is the default.
+.TP
+ignore
+\fB\*N\fP ignores the option,
+unless it happens to be one of the one it recognizes.
+.TP
+warn
+Print an warning message and otherwise ignore the option.
+.RE
+.IP
+If the variable is unset, \fB\*n\fP prints an error message and exits.
+.TP
+WHINY_USERS
+This is a \fBgawk\fP 3.1.0 feature, removed in the 4.0.0 release.
+It tells \fB\*n\fP to sort array indices before it starts to iterate
+over the elements of an array.
+.RE
 .\" **************************************************************************
-.SH "COMPATIBILITY ISSUES"
+.SH "COMPATIBILITY"
 .SS "MAWK 1.3.3 versus POSIX 1003.2 Draft 11.3"
 The POSIX 1003.2(draft 11.3) definition of the AWK language
 is AWK as described in the AWK book with a few extensions
@@ -1624,7 +1667,7 @@ implementation options as arguments to \-W.
 .bP
 For systems (MS-DOS or Windows) which provide a \fIsetmode\fP function,
 an environment variable MAWKBINMODE and a built-in variable BINMODE.
-The bits of the BINMODE value tell \fImawk\fP how to modify the
+The bits of the BINMODE value tell \fB\*n\fP  how to modify the
 \fBRS\fP and \fBORS\fP variables:
 .RS
 .TP 3
@@ -1736,22 +1779,35 @@ sequences in strings.
 Unlike ANSI C,
 \fB\*n\fP limits the number of digits that follows \ex to two as the current
 implementation only supports 8 bit characters.
-The built-in
-.B fflush
-first appeared in a recent (1993) AT&T awk released to netlib, and is
-not part of the POSIX standard.
-Aggregate deletion with
-.B delete
-.I array
-is not part of the POSIX standard.
 .PP
 POSIX explicitly leaves the behavior of
 .B FS
 = "" undefined, and mentions splitting the record into characters as
 a possible interpretation, but currently this use is not portable
 across implementations.
-.SS "Random numbers"
 .PP
+Some features were not part of the POSIX standard until long after
+their introduction in \fB\*n\fP and other implementations.
+These were published in IEEE 1003.1-2024
+(The Open Group Base Specifications Issue 8):
+.bP
+The built-in
+.B fflush
+first appeared in a 1993 AT&T awk released to netlib.
+It was approved for the POSIX standard in 2012.
+.bP
+The built-in
+.B nextfile
+first appeared in gawk in 1988,
+was adopted by BWK in 1996,
+and by mawk in 2012.
+It was approved for the POSIX standard in 2012.
+.bP
+Aggregate deletion with
+.B delete
+.I array
+was approved in 2018.
+.SS "Random numbers"
 POSIX does not prescribe a method for initializing random numbers at startup.
 .PP
 In practice, most implementations do nothing special,
@@ -1769,23 +1825,61 @@ can call \fBsrand\fP at startup with no parameter
 this feature may be suppressed using conditional compilation.
 .
 .SS "Extensions added for compatibility for GAWK and BWK"
-.PP
-.B Nextfile
-is a \fBgawk\fP extension (also implemented by BWK awk),
-is not yet part of the POSIX standard (as of October 2012),
-although it has been accepted for the next revision of the standard.
-.PP
 .BR Mktime ,
 .BR strftime \ and
 .B systime
 are \fBgawk\fP extensions.
 .PP
-The "/dev/stdin" feature was added to \fBmawk\fP after 1.3.4,
+The "/dev/stdin" feature was added to \fB\*n\fP after 1.3.4,
 for compatibility with \fBgawk\fP and BWK awk.
-The corresponding "-" (alias for /dev/stdin) was present in \*n 1.3.3.
+The corresponding "-" (alias for /dev/stdin) was present in \fB\*n\fR 1.3.3.
+.PP
+Interval expressions,
+e.g., a range \fI{m,n}\fP in Extended Regular Expressions (EREs),
+were not supported in awk (or even the original \*(``nawk\*(''):
+.bP
+Gawk provided this feature in 1991 (and later, in 1998,
+options for turning it off,
+for compatibility with \*(``traditional awk\*('').
+.bP
+Interval expressions,
+were introduced into \fIawk\fP regular expressions
+in IEEE 1003.1-2001 (also known as Unix 03),
+along with some internationalization features.
+.bP
+Apple modified its copy of the original awk in April 2006,
+making this version of awk support interval expressions.
+.IP
+The updated source provides for compatibility with
+older \*(``legacy\*('' versions using an environment variable,
+making this \*(``Unix 2003\*('' feature
+(perhaps meant as Unix 03)
+the default.
+.bP
+NetBSD developers copied this change in January 2018,
+omitting the compatibility option,
+and then applied it to BWK awk.
+.bP
+The interval expression implementation in \fB\*n\fP
+is based on changes proposed by James Parkinson in April 2016.
+.PP
+\fB\*N\fP also recognizes a few gawk-specific command line options
+for script compatibility:
+.RS 5
+.sp
+.hy 0
+.na
+\fB\-\-help\fP,
+\fB\-\-posix\fP,
+\fB\-r\fP,
+\fB\-\-re\-interval\fP,
+\fB\-\-traditional\fP,
+\fB\-\-version\fP
+.ad
+.hy
+.RE
 .
 .SS "Subtle Differences not in POSIX or the AWK Book"
-.PP
 Finally, here is how
 \fB\*n\fP
 handles exceptional cases not discussed in the
@@ -1827,44 +1921,85 @@ actions,
 the fields and
 .B NF
 have their value unaltered from the last record.
+.RE
 .\" **************************************************************************
-.SH ENVIRONMENT VARIABLES
-\fB\*N\fP recognizes these variables:
-.RS 3
-.TP 3
-MAWKBINMODE
-(see \fBCOMPATIBILITY ISSUES\fP)
-.TP
-MAWK_LONG_OPTIONS
-If this is set, \fB\*n\fP uses its value to decide what to do with
-GNU-style long options:
-.RS 5
-.TP
-allow
-\fB\*N\fP allows the option to be checked against the (small) set of
-long options it recognizes.
-.TP
-error
-\fB\*N\fP prints an error message and exits.
-This is the default.
-.TP
-ignore
-\fB\*N\fP ignores the option.
-.TP
-warn
-Print an warning message and otherwise ignore the option.
-.RE
-.IP
-If the variable is unset, \fB\*n\fP prints an error message and exits.
-.TP
-WHINY_USERS
-This is an undocumented \fBgawk\fP feature.
-It tells \fB\*n\fP to sort array indices before it starts to iterate
-over the elements of an array.
-.RE
+.SH BUGS
+\fB\*n\fP
+implements \fBprintf()\fR and \fBsprintf()\fR using the C library functions,
+printf and sprintf, so full ANSI compatibility requires an ANSI
+C library.
+In practice this means the h conversion qualifier may not be available.
+.sp
+Also \fB\*n\fP inherits any bugs or limitations of the library functions.
+.PP
+Implementors of the AWK language have shown a consistent lack
+of imagination when naming their programs.
+.\" **************************************************************************
+.SH EXAMPLES
+.nf
+1. emulate cat.
+
+	{ print }
+
+2. emulate wc.
+
+	{ chars += length($0) + 1  # add one for the \en
+	  words += NF
+	}
+
+	END{ print NR, words, chars }
+
+3. count the number of unique \*(``real words\*(''.
+
+	BEGIN { FS = "[^A\-Za\-z]+" }
+
+	{ for(i = 1 ; i <= NF ; i++)  word[$i] = "" }
+
+	END { delete word[""]
+	      for ( i in word )  cnt++
+	      print cnt
+	}
+
+.fi
+4. sum the second field of
+every record based on the first field.
+.nf
+
+	$1 ~ /credit\||\|gain/ { sum += $2 }
+	$1 ~ /debit\||\|loss/  { sum \-= $2 }
+
+	END { print sum }
+
+5. sort a file, comparing as string
+
+	{ line[NR] = $0 "" }  # make sure of comparison type
+			      # in case some lines look numeric
+
+	END {  isort(line, NR)
+	  for(i = 1 ; i <= NR ; i++) print line[i]
+	}
+
+	#insertion sort of A[1..n]
+	function isort( A, n,	i, j, hold)
+	{
+	  for( i = 2 ; i <= n ; i++)
+	  {
+	    hold = A[j = i]
+	    while ( A[j\-1] > hold )
+	    { j\-\|\- ; A[j+1] = A[j] }
+	    A[j] = hold
+	  }
+	  # sentinel A[0] = "" will be created if needed
+	}
+
+.fi
+.\" **************************************************************************
+.SH AUTHORS
+Mike Brennan (brennan@whidbey.com).
+.br
+Thomas E. Dickey <dickey@invisible-island.net>.
 .\" **************************************************************************
 .SH SEE ALSO
-.PP
 \fBgrep\fP(1)
 .PP
 Aho, Kernighan and Weinberger,
@@ -1882,20 +2017,15 @@ that does not attempt the depth of the AWK book
 and assumes the reader may be a novice programmer.
 The section on AWK arrays is excellent.
 It also discusses POSIX requirements for AWK.
-.\" **************************************************************************
-.SH BUGS
 .PP
-\fB\*n\fP
-implements printf() and sprintf() using the C library functions,
-printf and sprintf, so full ANSI compatibility requires an ANSI
-C library.
-In practice this means the h conversion qualifier may not be available.
-Also \fB\*n\fP inherits any bugs or limitations of the library functions.
+\fBmawk-arrays\fP(7) discusses \fB\*n\fP's implementation of arrays.
 .PP
-Implementors of the AWK language have shown a consistent lack
-of imagination when naming their programs.
-.\" **************************************************************************
-.SH AUTHOR
-Mike Brennan (brennan@whidbey.com).
+\fBmawk-code\fP(7) gives more information on the \fB\-W\ dump\fP option.
+.PP
+\fIawk \(en pattern scanning and processing language\fP
 .br
-Thomas E. Dickey <dickey@invisible-island.net>.
+The Open Group Base Specifications Issue 8
+.br
+IEEE Std 1003.1-2024
+.br
+https://pubs.opengroup.org/onlinepubs/9799919799/utilities/awk.html

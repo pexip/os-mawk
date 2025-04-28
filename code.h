@@ -1,6 +1,6 @@
 /********************************************
 code.h
-copyright 2009-2012,2019, Thomas E. Dickey
+copyright 2009-2023,2024, Thomas E. Dickey
 copyright 1991-1994,1995, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,7 +11,7 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: code.h,v 1.11 2019/01/30 00:49:25 tom Exp $
+ * $MawkId: code.h,v 1.16 2024/08/25 19:46:17 tom Exp $
  */
 
 /*  code.h  */
@@ -19,7 +19,7 @@ the GNU General Public License, version 2, 1991.
 #ifndef  MAWK_CODE_H
 #define  MAWK_CODE_H
 
-#include "memory.h"
+#include <memory.h>
 
 #define  PAGESZ	512
 	/* number of code instructions allocated at one time */
@@ -31,9 +31,13 @@ the GNU General Public License, version 2, 1991.
 #define   SCOPE_END     2
 #define   SCOPE_FUNCT   3
 
-typedef struct {
+typedef struct _codeblock
+#ifdef Visible_CODEBLOCK
+{
     INST *base, *limit, *warn, *ptr;
-} CODEBLOCK;
+}
+#endif
+CODEBLOCK;
 
 extern CODEBLOCK active_code;
 extern CODEBLOCK *main_code_p, *begin_code_p, *end_code_p;
@@ -60,8 +64,10 @@ extern int exit_code;
 #define  code1(x)  code_ptr++ -> op = (x)
 /* shutup picky compilers */
 #define  code2(x,p)  xcode2(x,(PTR)(p))
+#define  func2(x,p)  xfunc2(x,(p))
 
 void xcode2(int, PTR);
+void xfunc2(int, PF_CP);
 void code2op(int, int);
 INST *code_shrink(CODEBLOCK *, size_t *);
 void code_grow(void);
@@ -103,8 +109,9 @@ typedef enum {
     ,_POW
     ,_NOT
     ,_TEST
-    ,A_LENGTH
     ,A_TEST
+    ,_LENGTH
+    ,A_LENGTH
     ,A_DEL
     ,ALOOP
     ,A_CAT
@@ -155,6 +162,7 @@ typedef enum {
     ,_NEXTFILE
     ,_RANGE
     ,_CALL
+    ,_CALLX
     ,_RET
     ,_RET0
     ,SET_ALOOP

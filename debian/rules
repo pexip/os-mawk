@@ -21,7 +21,7 @@ override_dh_autoreconf:
 
 override_dh_auto_install:
 	dh_auto_install -- BINDIR=$(CURDIR)/debian/mawk/usr/bin \
-	                   MANDIR=$(CURDIR)/debian/mawk/usr/share/man/man1
+	                   MANDIR=$(CURDIR)/debian/mawk/usr/share/man
 
 override_dh_auto_build:
 	dh_auto_build -- mawk

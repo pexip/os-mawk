@@ -1,6 +1,6 @@
 /********************************************
 rexpdb.c
-copyright 2008-2014,2016, Thomas E. Dickey
+copyright 2008-2024,2025, Thomas E. Dickey
 copyright 1991,1993, Michael D. Brennan
 
 This is a source file for mawk, an implementation of
@@ -11,15 +11,16 @@ the GNU General Public License, version 2, 1991.
 ********************************************/
 
 /*
- * $MawkId: rexpdb.c,v 1.16 2016/09/30 21:27:07 tom Exp $
+ * $MawkId: rexpdb.c,v 1.33 2025/01/20 20:16:06 tom Exp $
  */
 
-#include "rexp.h"
+#include <rexp.h>
+
 #include <ctype.h>
 
 /*  print a machine for debugging  */
 
-static const char *xlat[] =
+static const char xlat[][12] =
 {
     "M_STR",
     "M_CLASS",
@@ -32,23 +33,29 @@ static const char *xlat[] =
     "M_2JB",
     "M_SAVE_POS",
     "M_2JC",
+#ifndef NO_INTERVAL_EXPR
+    "M_ENTER",
+    "M_LOOP",
+#endif
     "M_ACCEPT"
 };
 
-const char *
-REs_type(PTR p)
+static const char *
+REs_type(STATE * p)
 {
-    return (xlat[((UChar) (((STATE *) p)->s_type)) % U_ON]);
+    return (xlat[((UChar) (p->s_type)) % U_ON]);
 }
 
 void
-REmprint(PTR m, FILE *f)
+REmprint(STATE * m, FILE *f)
 {
-    STATE *p = (STATE *) m;
+    STATE *base = m;
+    STATE *p = base;
     const char *end_on_string;
 
     while (1) {
-	fprintf(f, "%03d ", (int) (p - (STATE *) m));
+	int line = (int) (p - base);
+	fprintf(f, "%03d ", line);
 	fprintf(f, ".\t");
 	if (p->s_type >= END_ON) {
 	    p->s_type = (SType) (p->s_type - END_ON);
@@ -61,19 +68,39 @@ REmprint(PTR m, FILE *f)
 	    return;
 	}
 
-	fprintf(f, "%s", xlat[((UChar) (p->s_type)) % U_ON]);
+	fprintf(f, "%s", REs_type(p));
 	switch (p->s_type) {
 	case M_STR:
 	    fprintf(f, "\t");
-	    da_string(f, p->s_data.str, (size_t) p->s_len);
+	    da_string2(f, p->s_data.str, (size_t) p->s_len, '"');
 	    break;
 
 	case M_1J:
 	case M_2JA:
 	case M_2JB:
 	case M_2JC:
-	    fprintf(f, "\t%d", p->s_data.jump);
+	    fprintf(f, "\t%03d", line + p->s_data.jump);
 	    break;
+#ifndef NO_INTERVAL_EXPR
+	case M_ENTER:
+	    fprintf(f, "\t%03d\t# level %d",
+		    line + p->s_data.jump,
+		    (int) p->it_cnt);
+	    break;
+	case M_LOOP:
+	    fprintf(f, "\t%03d", line + p->s_data.jump);
+	    fprintf(f, " %c", L_CURL);
+	    if (p->it_min != 0)
+		fprintf(f, INT_FMT, p->it_min);
+	    if (p->it_max != p->it_min) {
+		fprintf(f, ",");
+		if (p->it_max != MAX__INT)
+		    fprintf(f, INT_FMT, p->it_max);
+	    }
+	    fprintf(f, "%c", R_CURL);
+	    fprintf(f, "\t# level %d", (int) (p + p->s_enter)->it_cnt);
+	    break;
+#endif
 	case M_CLASS:
 	    {
 		UChar *q = (UChar *) p->s_data.bvp;
@@ -103,7 +130,9 @@ REmprint(PTR m, FILE *f)
 	    }
 	    break;
 	}
-	fprintf(f, "\t%s\n", end_on_string);
+	if (end_on_string[0])
+	    fprintf(f, "\t%s", end_on_string);
+	fprintf(f, "\n");
 	if (end_on_string[0])
 	    p->s_type = (SType) (p->s_type + END_ON);
 	if (p->s_type == M_ACCEPT)
